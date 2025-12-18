@@ -2,6 +2,8 @@
 
 **ZeroMod for pfQuest** adds support for LibSharedMedia-3.0 fonts with customizable font sizes, outlines, and enhanced tracker configuration options.
 
+![Tracker Preview](screenshots/tracker-preview.png)
+
 ---
 
 ## Features
