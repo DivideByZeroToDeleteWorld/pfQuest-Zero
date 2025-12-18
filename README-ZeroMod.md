@@ -2,7 +2,18 @@
 
 **ZeroMod for pfQuest** adds support for LibSharedMedia-3.0 fonts with customizable font sizes, outlines, and enhanced tracker configuration options.
 
-![Tracker Preview](screenshots/tracker-preview.png)
+## Screenshots
+
+<table>
+<tr>
+<td><img src="screenshots/tracker-ingame.png" alt="In-Game Tracker" /></td>
+<td><img src="screenshots/tracker-preview.png" alt="Configuration Options" /></td>
+</tr>
+<tr>
+<td align="center"><b>Enhanced Quest Tracker</b></td>
+<td align="center"><b>Configuration Panel</b></td>
+</tr>
+</table>
 
 ---
 
