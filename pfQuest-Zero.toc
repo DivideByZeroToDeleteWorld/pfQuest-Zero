@@ -1,0 +1,16 @@
+## Interface: 30300
+## Title: pfQuest [|cFF1AE633Z|r|cFFB31AE6ero|r|cFF3399FFMod|r]
+## Author: Shagu |cFFFF4DB3[|r|cFF1AE633Z|r|cFFB31AE6ero|r|cFFFF4DB3]|r
+## Notes: A Questhelper and Database
+## Notes-ruRU: Облегченный помощник заданий и база данных
+## Version: 7.0.1-ZeroMod
+## OptionalDeps: pfUI-wotlk, LibSharedMedia-3.0
+## SavedVariables: pfQuest_questcache
+## SavedVariablesPerCharacter: pfQuest_config, pfBrowser_fav, pfQuest_history, pfQuest_colors, pfQuest_server, pfQuest_track
+init\data.xml
+init\data-tbc.xml
+init\enUS.xml
+init\enUS-tbc.xml
+init\enUS.xml
+init\enUS-tbc.xml
+init\addon.xml
