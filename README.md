@@ -61,9 +61,8 @@
 
 ## Requirements
 
-- **pfUI** (or compatible UI framework) - Required
-- **LibSharedMedia-3.0** - Optional (defaults to Blizzard's built-in fonts if not installed; adds custom font support if installed)
 - World of Warcraft 3.3.5 (WotLK)
+- **LibSharedMedia-3.0** - Optional (defaults to Blizzard's built-in fonts if not installed; adds custom font support if installed)
 
 ---
 
