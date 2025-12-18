@@ -86,6 +86,4 @@ ZeroMod enhancements by the Chromie community
 
 ---
 
-## Development
-
-**AI-Assisted Development**: This modification was created with the assistance of Claude (Anthropic's AI assistant). All code additions and enhancements to the original pfQuest addon were developed through AI-assisted programming to implement the LibSharedMedia-3.0 integration, scrollable tracker, and enhanced configuration options.
+⚠️ **WARNING**: For those out there that get angry about this sort of thing, please be aware AI was used in the development of this Mod of pfQuest. If this upsets you, please see yourself out. Thank you!
