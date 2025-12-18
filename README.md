@@ -82,7 +82,7 @@ All changes apply immediately!
 
 Based on [pfQuest](https://github.com/shagu/pfQuest) by Shagu
 
-ZeroMod enhancements by the Chromie community
+ZeroMod enhancements provided by <span style="color:#B31AE6">Z</span><span style="color:#1AE633">ero</span>
 
 ---
 
