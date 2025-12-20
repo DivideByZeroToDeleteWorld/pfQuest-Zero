@@ -136,6 +136,14 @@ tracker:SetScript("OnEvent", function()
   else
     this:Show()
   end
+
+  -- Hide perks button if SynastriaCoreLib is not available
+  if tracker.btnperks then
+    local SCL = LibStub and LibStub("SynastriaCoreLib-1.0", true)
+    if not SCL or not SCL.Perks then
+      tracker.btnperks:Hide()
+    end
+  end
 end)
 
 tracker:SetScript("OnMouseDown",function()
@@ -261,6 +269,41 @@ do -- button panel
     pfMap:UpdateNodes()
   end)
 
+  tracker.btnperks = CreateButton("perks", "TOPLEFT", pfQuest_Loc["Show Perk Tasks"] or "Show Perk Tasks", function()
+    if tracker.mode == "PERK_TRACKING" then
+      -- Already in perk mode - toggle expand/collapse all
+      local allCollapsed = true
+
+      -- Check if all perk tasks are collapsed
+      for id, button in pairs(tracker.buttons) do
+        if not button.empty and button.title and expand_states[button.title] == 1 then
+          allCollapsed = false
+          break
+        end
+      end
+
+      -- Toggle: if all collapsed, expand all; otherwise collapse all
+      local newState = allCollapsed and 1 or 0
+
+      for id, button in pairs(tracker.buttons) do
+        if not button.empty and button.title then
+          expand_states[button.title] = newState
+        end
+      end
+
+      -- Refresh all buttons to apply new state
+      for id, button in pairs(tracker.buttons) do
+        if not button.empty then
+          tracker.ButtonEvent(button)
+        end
+      end
+    else
+      tracker.mode = "PERK_TRACKING"
+      tracker.Reset()
+      tracker.ButtonEvent(tracker.buttons[1])
+    end
+  end)
+
   tracker.btnclose = CreateButton("close", "TOPRIGHT", pfQuest_Loc["Close Tracker"], function()
     DEFAULT_CHAT_FRAME:AddMessage(pfQuest_Loc["|cff33ffccpf|cffffffffQuest: Tracker is now hidden. Type `/db tracker` to show."])
     tracker:Hide()
@@ -274,6 +317,41 @@ do -- button panel
     pfMap:DeleteNode("PFDB")
     pfMap:UpdateNodes()
   end)
+
+  -- Lock button (custom, not using CreateButton since we need different textures for states)
+  anchors["TOPRIGHT"] = anchors["TOPRIGHT"] and anchors["TOPRIGHT"] + 1 or 0
+  local lockpos = -1-(panelheight+1)*anchors["TOPRIGHT"]
+
+  tracker.btnlock = CreateFrame("Button", nil, tracker.panel)
+  tracker.btnlock.tooltip = pfQuest_Loc["Lock Tracker Position"] or "Lock Tracker Position"
+  tracker.btnlock.icon = tracker.btnlock:CreateTexture(nil, "BACKGROUND")
+  tracker.btnlock.icon:SetAllPoints()
+
+  tracker.btnlock:SetPoint("TOPRIGHT", lockpos, -1)
+  tracker.btnlock:SetWidth(panelheight-2)
+  tracker.btnlock:SetHeight(panelheight-2)
+
+  tracker.btnlock:SetScript("OnEnter", ShowTooltip)
+  tracker.btnlock:SetScript("OnLeave", HideTooltip)
+
+  -- Update icon based on lock state
+  local function UpdateLockIcon()
+    if pfQuest_config.lock then
+      tracker.btnlock.icon:SetTexture(pfQuestConfig.path.."\\img\\lock_2")
+      tracker.btnlock.icon:SetVertexColor(.2,1,.8)
+    else
+      tracker.btnlock.icon:SetTexture(pfQuestConfig.path.."\\img\\lock_1")
+      tracker.btnlock.icon:SetVertexColor(1,1,1)
+    end
+  end
+
+  tracker.btnlock:SetScript("OnClick", function()
+    pfQuest_config.lock = not pfQuest_config.lock and true or nil
+    UpdateLockIcon()
+  end)
+
+  tracker.btnlock:SetScript("OnShow", UpdateLockIcon)
+  UpdateLockIcon()
 
   tracker.btnsearch = CreateButton("search", "TOPRIGHT", pfQuest_Loc["Open Database Browser"], function()
     if pfBrowser then pfBrowser:Show() end
@@ -537,8 +615,9 @@ function tracker.ButtonEvent(self)
 
     -- Track total height accumulated by objectives
     local objectivesHeight = 0
+    local visibleObjectives = 0
 
-    -- Position objectives at fixed intervals using rowheight
+    -- Position objectives using anchor chains for proper wrapping
     if objectives and (expanded or ( percent > 0 and percent < 100 )) then
       for i=1, objectives, 1 do
         local text, _, done = GetQuestLogLeaderBoard(i, qlogid)
@@ -548,10 +627,30 @@ function tracker.ButtonEvent(self)
           self.objectives[i] = self:CreateFontString(nil, "HIGH", "GameFontNormal")
           self.objectives[i]:SetFont(_G.GetTrackerFont(), fontsize, _G.GetTrackerFontStyle())
           self.objectives[i]:SetJustifyH("LEFT")
-          self.objectives[i]:SetWordWrap(true)  -- Enable wrapping
+          self.objectives[i]:SetJustifyV("TOP")  -- Top-align text to prevent gaps
+          self.objectives[i]:SetWordWrap(true)
+          self.objectives[i]:SetNonSpaceWrap(true)  -- Allow wrapping on any character if needed
         end
 
-        -- Update objective text
+        -- Calculate available width for objectives (button width minus padding)
+        local trackerWidth = tonumber(pfQuest_config["trackerwidth"]) or 300
+        local objectiveWidth = trackerWidth - 30  -- 20px left padding + 10px right padding
+
+        -- Explicitly set width to force proper text wrapping
+        self.objectives[i]:SetWidth(objectiveWidth)
+
+        -- Position the objective
+        self.objectives[i]:ClearAllPoints()
+        if i == 1 then
+          -- First objective anchors below the title (3px below title text)
+          local firstObjOffset = -(fontsize + 3)
+          self.objectives[i]:SetPoint("TOPLEFT", self, "TOPLEFT", 20, firstObjOffset)
+        else
+          -- Subsequent objectives anchor to bottom of previous objective
+          self.objectives[i]:SetPoint("TOPLEFT", self.objectives[i-1], "BOTTOMLEFT", 0, -2)
+        end
+
+        -- Set text AFTER width is constrained so wrapping calculates correctly
         if objNum and objNeeded then
           local r,g,b = pfMap.tooltip:GetColor(objNum, objNeeded)
           self.objectives[i]:SetTextColor(r+.2, g+.2, b+.2)
@@ -561,33 +660,33 @@ function tracker.ButtonEvent(self)
           self.objectives[i]:SetText("|cffffffff- " .. text)
         end
 
-        -- Position objective with BOTH anchors to constrain width for wrapping
-        local yOffset = -(titlerowheight + objectivesHeight)
-        self.objectives[i]:ClearAllPoints()
-        self.objectives[i]:SetPoint("TOPLEFT", self, "TOPLEFT", 20, yOffset)
-        self.objectives[i]:SetPoint("TOPRIGHT", self, "TOPRIGHT", -10, yOffset)
-
         self.objectives[i]:Show()
+        visibleObjectives = i
 
-        -- Now that width is constrained and text is set, GetHeight() returns wrapped height
+        -- Get actual wrapped height (no rounding - use real height)
         local wrappedHeight = self.objectives[i]:GetHeight()
-        -- Round up to nearest multiple of objectiverowheight
-        local linesNeeded = math.max(1, math.ceil(wrappedHeight / objectiverowheight))
-        local thisObjectiveHeight = linesNeeded * objectiverowheight
-
-        objectivesHeight = objectivesHeight + thisObjectiveHeight
+        objectivesHeight = objectivesHeight + wrappedHeight + (i > 1 and 2 or 0)  -- Add 2px spacing between objectives
       end
     end
 
     -- Hide any old objectives that are no longer needed
-    for i = objectives + 1, table.getn(self.objectives) do
+    for i = visibleObjectives + 1, table.getn(self.objectives) do
       if self.objectives[i] then
         self.objectives[i]:Hide()
       end
     end
 
-    -- Calculate total height: titlerowheight + all objectives heights
-    local actualHeight = titlerowheight + objectivesHeight
+    -- Calculate total height
+    local actualHeight
+    if objectivesHeight > 0 then
+      -- Expanded: title area + objectives + bottom padding for separation from next button
+      local titleArea = fontsize + 3  -- Matches first objective offset
+      local bottomPadding = 3
+      actualHeight = titleArea + objectivesHeight + bottomPadding
+    else
+      -- Collapsed: just the title row
+      actualHeight = titlerowheight
+    end
 
     self:SetHeight(actualHeight)
   elseif tracker.mode == "GIVER_TRACKING" then
@@ -620,6 +719,128 @@ function tracker.ButtonEvent(self)
 
     -- Fixed height for database tracking - uses titlerowheight
     self:SetHeight(titlerowheight)
+  elseif tracker.mode == "PERK_TRACKING" then
+    local perkData = node.perkData
+    if not perkData then return end
+
+    -- write expand state
+    if not expand_states[title] then
+      expand_states[title] = pfQuest_config["trackerexpand"] == "1" and 1 or 0
+    end
+
+    local expanded = expand_states[title] == 1 and true or nil
+
+    -- Calculate progress percentage
+    local cur = 0
+    local max = perkData.task and perkData.task.req0 or 0
+    local percent = 0
+
+    -- Special case: "All Tasks Complete!" empty state should show 100%
+    if not perkData.task and perkData.perkName == "All Tasks Complete!" then
+      percent = 100
+      cur = 1
+      max = 1
+    elseif max > 0 then
+      cur = GetPerkTaskProg and GetPerkTaskProg(perkData.pivotId) or 0
+      percent = cur / max * 100
+      if cur >= max then percent = 100 end
+    end
+
+    -- Set title with progress
+    local r, g, b = pfMap.tooltip:GetColor(cur, max > 0 and max or 1)
+    local colorperc = string.format("|cff%02x%02x%02x", r*255, g*255, b*255)
+
+    self.tracked = true
+    self.perc = percent
+    self.text:SetText(string.format("%s |cffaaaaaa(%s%s%%|cffaaaaaa)|r", perkData.perkNameColored or title, colorperc, ceil(percent)))
+    self.text:SetTextColor(1, 1, 1)
+    self.tooltip = pfQuest_Loc["Perk Task"] or "|cff33ffcc<Click>|r Unfold/Fold Task"
+
+    -- Initialize objectives table if needed
+    if not self.objectives then
+      self.objectives = {}
+    end
+
+    -- Track total height from objectives
+    local objectivesHeight = 0
+
+    -- Show task text as objective if expanded or in progress
+    if perkData.text and (expanded or (percent > 0 and percent < 100)) then
+      if not self.objectives[1] then
+        self.objectives[1] = self:CreateFontString(nil, "HIGH", "GameFontNormal")
+        self.objectives[1]:SetFont(_G.GetTrackerFont(), fontsize, _G.GetTrackerFontStyle())
+        self.objectives[1]:SetJustifyH("LEFT")
+        self.objectives[1]:SetJustifyV("TOP")  -- Top-align text to prevent gaps
+        self.objectives[1]:SetWordWrap(true)
+        self.objectives[1]:SetNonSpaceWrap(true)  -- Allow wrapping on any character if needed
+      end
+
+      -- Calculate available width for objectives (button width minus padding)
+      local trackerWidth = tonumber(pfQuest_config["trackerwidth"]) or 300
+      local objectiveWidth = trackerWidth - 30  -- 20px left padding + 10px right padding
+
+      -- Explicitly set width to force proper text wrapping
+      self.objectives[1]:SetWidth(objectiveWidth)
+
+      -- Position the objective (3px below title text, matching quests)
+      local firstObjOffset = -(fontsize + 3)
+      self.objectives[1]:ClearAllPoints()
+      self.objectives[1]:SetPoint("TOPLEFT", self, "TOPLEFT", 20, firstObjOffset)
+
+      -- Format task text with progress
+      local taskText = perkData.text or ""
+
+      -- Handle $n (newline placeholder) - replace with space
+      taskText = string.gsub(taskText, "%$n", " ")
+
+      -- Fix color reset before % sign - move |r after the %
+      taskText = string.gsub(taskText, "|r%%", "%%|r")
+
+      -- Build the display text
+      if max > 0 then
+        -- Progress color for the numbers only
+        local progressColor = string.format("|cff%02x%02x%02x", r*255, g*255, b*255)
+        -- White dash, task text (has its own embedded colors that reset to white), progress in color
+        taskText = string.format("|cffffffff- %s|r %s%d/%d|r", taskText, progressColor, cur, max)
+      else
+        taskText = "|cffffffff- " .. taskText .. "|r"
+      end
+
+      -- NOW set text - font string knows its width constraint and can wrap properly
+      self.objectives[1]:SetText(taskText)
+      -- Set base color to white - let embedded color codes handle the coloring
+      self.objectives[1]:SetTextColor(1, 1, 1)
+      self.objectives[1]:Show()
+
+      -- Get actual wrapped height (no rounding - use real height)
+      objectivesHeight = self.objectives[1]:GetHeight()
+    else
+      -- Hide objective if collapsed
+      if self.objectives[1] then
+        self.objectives[1]:Hide()
+      end
+    end
+
+    -- Hide any extra objectives
+    for i = 2, table.getn(self.objectives) do
+      if self.objectives[i] then
+        self.objectives[i]:Hide()
+      end
+    end
+
+    -- Calculate total height (matching quest logic)
+    local actualHeight
+    if objectivesHeight > 0 then
+      -- Expanded: title area + objectives + bottom padding for separation from next button
+      local titleArea = fontsize + 3  -- Matches first objective offset
+      local bottomPadding = 3
+      actualHeight = titleArea + objectivesHeight + bottomPadding
+    else
+      -- Collapsed: just the title row
+      actualHeight = titlerowheight
+    end
+
+    self:SetHeight(actualHeight)
   end
 
   -- sort all tracker entries
@@ -704,6 +925,8 @@ function tracker.ButtonAdd(title, node)
     if not node.layer or node.layer > 2 then return end
   elseif tracker.mode == "DATABASE_TRACKING" then -- skip everything that isn't db query
     if node.addon ~= "PFDB" then return end
+  elseif tracker.mode == "PERK_TRACKING" then -- skip everything that isn't a perk task
+    if node.addon ~= "PERK" then return end
   end
 
   local id
@@ -798,7 +1021,46 @@ function tracker.Reset()
     button:Hide()
   end
 
-  -- add tracked quests
+  -- Handle PERK_TRACKING mode
+  if tracker.mode == "PERK_TRACKING" then
+    -- Check if SynastriaCoreLib is available
+    local SCL = LibStub and LibStub("SynastriaCoreLib-1.0", true)
+    if SCL and SCL.Perks and SCL.Perks.GetActiveTasks then
+      local activeTasks = SCL.Perks.GetActiveTasks()
+      if activeTasks and table.getn(activeTasks) > 0 then
+        for _, perkData in ipairs(activeTasks) do
+          -- Store pivotId for progress lookup
+          perkData.pivotId = SCL.Perks.GetAssign1 and SCL.Perks.GetAssign1(perkData.perkId) or 0
+
+          local node = {
+            addon = "PERK",
+            perkData = perkData,
+            texture = pfQuestConfig.path .. "\\img\\tracker_perks",
+          }
+          tracker.ButtonAdd(perkData.perkName, node)
+        end
+      else
+        -- No active perk tasks - show congratulatory message
+        local emptyNode = {
+          addon = "PERK",
+          perkData = {
+            perkName = "All Tasks Complete!",
+            perkNameColored = "|cff00ff000 Perk Tasks - Congrats!|r",
+            text = nil,
+            task = nil,
+          },
+          texture = pfQuestConfig.path .. "\\img\\tracker_perks",
+        }
+        tracker.ButtonAdd("All Tasks Complete!", emptyNode)
+      end
+    else
+      -- SynastriaCoreLib not available
+      DEFAULT_CHAT_FRAME:AddMessage("|cff33ffccpfQuest:|r SynastriaCoreLib not found. Perk tracking unavailable.")
+    end
+    return
+  end
+
+  -- add tracked quests (default behavior for other modes)
   local _, numQuests = GetNumQuestLogEntries()
   local found = 0
 

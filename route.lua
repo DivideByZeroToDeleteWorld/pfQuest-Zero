@@ -317,6 +317,32 @@ end)
 
 pfQuest.route.arrow:SetScript("OnDragStop", function()
   this:StopMovingOrSizing()
+
+  -- Save arrow position to config
+  local x, y = this:GetCenter()
+  local uiWidth, uiHeight = UIParent:GetWidth(), UIParent:GetHeight()
+  -- Store as offset from center of screen
+  local posX = x - (uiWidth / 2)
+  local posY = y - (uiHeight / 2)
+  pfQuest_config = pfQuest_config or {}
+  pfQuest_config["arrowposx"] = posX
+  pfQuest_config["arrowposy"] = posY
+
+  -- Also save to global if global settings enabled
+  if pfQuestConfig and pfQuestConfig.SaveGlobalSetting then
+    pfQuestConfig:SaveGlobalSetting("arrowposx", posX)
+    pfQuestConfig:SaveGlobalSetting("arrowposy", posY)
+  end
+end)
+
+-- Load saved arrow position after config is loaded
+pfQuest.route.arrow:RegisterEvent("PLAYER_ENTERING_WORLD")
+pfQuest.route.arrow:SetScript("OnEvent", function()
+  if pfQuest_config and pfQuest_config["arrowposx"] and pfQuest_config["arrowposy"] then
+    this:ClearAllPoints()
+    this:SetPoint("CENTER", UIParent, "CENTER", pfQuest_config["arrowposx"], pfQuest_config["arrowposy"])
+  end
+  this:UnregisterEvent("PLAYER_ENTERING_WORLD")
 end)
 
 local invalid, lasttarget

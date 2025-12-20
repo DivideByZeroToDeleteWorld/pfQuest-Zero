@@ -6,6 +6,424 @@ pfQuest_history = {}
 pfQuest_colors = {}
 pfQuest_config = {}
 
+-- ============================================================================
+-- Font helpers (LSM with fallback to base fonts)
+-- ============================================================================
+local LSM = LibStub and LibStub:GetLibrary("LibSharedMedia-3.0", true)
+
+-- Fallback fonts when LSM isn't available
+local fallbackFonts = {
+  ["FranzBold"] = pfUI and pfUI.font_default or "Fonts\\ARIALN.TTF",
+  ["Arial"] = "Fonts\\ARIALN.TTF",
+  ["Skurri"] = "Fonts\\SKURRI.TTF",
+  ["Morpheus"] = "Fonts\\MORPHEUS.TTF",
+  ["IMMORTAL"] = "Fonts\\IMMORTAL.TTF",
+}
+
+-- Get sorted list of available fonts
+local function GetAvailableFonts()
+  if LSM then
+    -- Use LSM's list (always current, includes all registered fonts)
+    local fonts = {}
+    for _, fontName in ipairs(LSM:List("font")) do
+      table.insert(fonts, fontName)
+    end
+    table.sort(fonts, function(a, b)
+      return string.lower(a) < string.lower(b)
+    end)
+    return fonts
+  else
+    -- Fallback to base fonts
+    local fonts = {}
+    for fontName in pairs(fallbackFonts) do
+      table.insert(fonts, fontName)
+    end
+    table.sort(fonts, function(a, b)
+      return string.lower(a) < string.lower(b)
+    end)
+    return fonts
+  end
+end
+
+-- Get font file path by name
+local function GetFontPath(fontName)
+  if LSM then
+    return LSM:Fetch("font", fontName)
+  else
+    return fallbackFonts[fontName]
+  end
+end
+
+-- ============================================================================
+-- Custom Font Choice Dropdown (with font preview)
+-- ============================================================================
+local function CreateFontChoiceDropdown(parent, config, currentValue, onSelect)
+  local width = 140
+  local height = 20
+  local itemHeight = 20
+  local fontSize = 11
+
+  -- Create main dropdown button
+  local dropdown = CreateFrame("Button", nil, parent)
+  dropdown:SetWidth(width)
+  dropdown:SetHeight(height)
+  pfUI.api.CreateBackdrop(dropdown, nil, true)
+
+  -- Selected font text (will render in the selected font)
+  local selectedText = dropdown:CreateFontString(nil, "OVERLAY")
+  selectedText:SetFont(pfUI.font_default, fontSize, "OUTLINE")
+  selectedText:SetPoint("LEFT", 6, 0)
+  selectedText:SetPoint("RIGHT", -18, 0)
+  selectedText:SetJustifyH("LEFT")
+  selectedText:SetText(currentValue or "Select Font...")
+  selectedText:SetTextColor(0.2, 1, 0.8, 1)
+  dropdown.selectedText = selectedText
+
+  -- Set initial font preview
+  local currentFontPath = currentValue and GetFontPath(currentValue)
+  if currentFontPath then
+    selectedText:SetFont(currentFontPath, fontSize, "OUTLINE")
+  end
+
+  -- Arrow indicator
+  local arrow = dropdown:CreateFontString(nil, "OVERLAY")
+  arrow:SetFont(pfUI.font_default, 10, "OUTLINE")
+  arrow:SetPoint("RIGHT", -4, 0)
+  arrow:SetText("v")
+  arrow:SetTextColor(0.6, 0.6, 0.6, 1)
+  dropdown.arrow = arrow
+
+  -- State
+  dropdown.selectedValue = currentValue
+  dropdown.isOpen = false
+  dropdown.config = config
+  dropdown.onSelect = onSelect
+  dropdown.itemButtons = {}
+
+  -- Create dropdown list frame
+  local list = CreateFrame("Frame", nil, dropdown)
+  list:SetPoint("TOPLEFT", dropdown, "BOTTOMLEFT", 0, -2)
+  list:SetWidth(width)
+  list:SetFrameStrata("FULLSCREEN_DIALOG")
+  list:SetFrameLevel(dropdown:GetFrameLevel() + 50)
+  pfUI.api.CreateBackdrop(list, nil, true, 0.95)
+  list:Hide()
+  dropdown.list = list
+
+  -- Create scroll frame for the list
+  local scrollFrame = CreateFrame("ScrollFrame", nil, list)
+  scrollFrame:SetPoint("TOPLEFT", 2, -2)
+  scrollFrame:SetPoint("BOTTOMRIGHT", -2, 2)
+  dropdown.scrollFrame = scrollFrame
+
+  -- Create scroll child (content holder)
+  local scrollChild = CreateFrame("Frame", nil, scrollFrame)
+  scrollChild:SetWidth(width - 4)
+  scrollFrame:SetScrollChild(scrollChild)
+  dropdown.scrollChild = scrollChild
+
+  -- Scrollbar
+  local scrollBar = CreateFrame("Frame", nil, list)
+  scrollBar:SetWidth(8)
+  scrollBar:SetPoint("TOPRIGHT", -2, -2)
+  scrollBar:SetPoint("BOTTOMRIGHT", -2, 2)
+  scrollBar:SetBackdrop({bgFile = "Interface\\Buttons\\WHITE8X8"})
+  scrollBar:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
+  scrollBar:Hide()
+  dropdown.scrollBar = scrollBar
+
+  -- Scrollbar thumb
+  local scrollThumb = CreateFrame("Frame", nil, scrollBar)
+  scrollThumb:SetWidth(6)
+  scrollThumb:SetPoint("TOP", 0, 0)
+  scrollThumb:SetBackdrop({bgFile = "Interface\\Buttons\\WHITE8X8"})
+  scrollThumb:SetBackdropColor(0.3, 0.3, 0.3, 1)
+  scrollThumb:EnableMouse(true)
+  scrollThumb:SetMovable(true)
+  dropdown.scrollThumb = scrollThumb
+
+  -- Create/update item buttons
+  local function PopulateList()
+    local fonts = GetAvailableFonts()
+    dropdown.items = fonts
+
+    -- Calculate max visible items based on 40% screen height
+    local screenHeight = UIParent:GetHeight()
+    local maxListHeight = screenHeight * 0.4
+    local maxVisibleItems = math.floor(maxListHeight / itemHeight)
+
+    local needsScroll = #fonts > maxVisibleItems
+    local visibleCount = needsScroll and maxVisibleItems or #fonts
+    local listHeight = (visibleCount * itemHeight) + 4
+
+    list:SetHeight(listHeight)
+    scrollChild:SetHeight(#fonts * itemHeight)
+
+    -- Show/hide scrollbar
+    if needsScroll then
+      scrollBar:Show()
+      scrollFrame:SetPoint("BOTTOMRIGHT", -12, 2)
+      local thumbHeight = math.max(16, (visibleCount / #fonts) * (listHeight - 4))
+      scrollThumb:SetHeight(thumbHeight)
+    else
+      scrollBar:Hide()
+      scrollFrame:SetPoint("BOTTOMRIGHT", -2, 2)
+    end
+
+    -- Clear existing buttons
+    for _, btn in ipairs(dropdown.itemButtons) do
+      btn:Hide()
+      btn:SetParent(nil)
+    end
+    dropdown.itemButtons = {}
+
+    -- Create item buttons
+    for i, fontName in ipairs(fonts) do
+      local itemBtn = CreateFrame("Button", nil, scrollChild)
+      itemBtn:SetSize(width - (needsScroll and 16 or 8), itemHeight)
+      itemBtn:SetPoint("TOPLEFT", 2, -((i - 1) * itemHeight))
+
+      -- Checkmark for selected item
+      local checkmark = itemBtn:CreateFontString(nil, "OVERLAY")
+      checkmark:SetFont(pfUI.font_default, fontSize - 2, "OUTLINE")
+      checkmark:SetPoint("LEFT", 3, 0)
+      checkmark:SetText("|cff00cccc>|r")
+      checkmark:Hide()
+      itemBtn.checkmark = checkmark
+
+      -- Font name text (rendered in its own font)
+      local itemText = itemBtn:CreateFontString(nil, "OVERLAY")
+      local fontFilePath = GetFontPath(fontName)
+      if fontFilePath then
+        -- Try to set the font, fallback to default if it fails
+        if not itemText:SetFont(fontFilePath, fontSize, "") then
+          itemText:SetFont(pfUI.font_default, fontSize, "OUTLINE")
+        end
+      else
+        itemText:SetFont(pfUI.font_default, fontSize, "OUTLINE")
+      end
+      itemText:SetPoint("LEFT", 16, 0)
+      itemText:SetPoint("RIGHT", -2, 0)
+      itemText:SetJustifyH("LEFT")
+      itemText:SetText(fontName)
+      itemText:SetTextColor(0.9, 0.9, 0.9, 1)
+      itemBtn.itemText = itemText
+      itemBtn.fontName = fontName
+
+      -- Update checkmark visibility
+      if dropdown.selectedValue == fontName then
+        checkmark:Show()
+        itemText:SetTextColor(0.2, 1, 0.8, 1)
+      end
+
+      -- Hover effect
+      itemBtn:SetScript("OnEnter", function()
+        this:SetBackdrop({bgFile = "Interface\\Buttons\\WHITE8X8"})
+        this:SetBackdropColor(0.15, 0.15, 0.15, 1)
+      end)
+
+      itemBtn:SetScript("OnLeave", function()
+        this:SetBackdrop(nil)
+      end)
+
+      -- Click to select
+      itemBtn:SetScript("OnClick", function()
+        -- Update all checkmarks
+        for _, btn in ipairs(dropdown.itemButtons) do
+          btn.checkmark:Hide()
+          btn.itemText:SetTextColor(0.9, 0.9, 0.9, 1)
+        end
+
+        -- Show checkmark on selected
+        this.checkmark:Show()
+        this.itemText:SetTextColor(0.2, 1, 0.8, 1)
+
+        -- Update dropdown state
+        dropdown.selectedValue = this.fontName
+
+        -- Update selected text with the font preview
+        local selectedFontPath = GetFontPath(this.fontName)
+        if selectedFontPath then
+          dropdown.selectedText:SetFont(selectedFontPath, fontSize, "OUTLINE")
+        end
+        dropdown.selectedText:SetText(this.fontName)
+
+        -- Close dropdown
+        list:Hide()
+        dropdown.isOpen = false
+        dropdown.arrow:SetText("v")
+
+        -- Call callback
+        if dropdown.onSelect then
+          dropdown.onSelect(this.fontName)
+        end
+      end)
+
+      table.insert(dropdown.itemButtons, itemBtn)
+    end
+
+    -- Reset scroll position
+    scrollFrame:SetVerticalScroll(0)
+    scrollThumb:ClearAllPoints()
+    scrollThumb:SetPoint("TOP", scrollBar, "TOP", 0, 0)
+  end
+
+  -- Mouse wheel scrolling
+  list:EnableMouseWheel(true)
+  list:SetScript("OnMouseWheel", function()
+    local maxScroll = scrollChild:GetHeight() - scrollFrame:GetHeight()
+    if maxScroll <= 0 then return end
+
+    local current = scrollFrame:GetVerticalScroll()
+    local newScroll = current - (arg1 * itemHeight * 2)
+    newScroll = math.max(0, math.min(newScroll, maxScroll))
+    scrollFrame:SetVerticalScroll(newScroll)
+
+    -- Update thumb position
+    local scrollPercent = newScroll / maxScroll
+    local thumbRange = scrollBar:GetHeight() - scrollThumb:GetHeight()
+    scrollThumb:ClearAllPoints()
+    scrollThumb:SetPoint("TOP", scrollBar, "TOP", 0, -scrollPercent * thumbRange)
+  end)
+
+  -- Thumb dragging
+  scrollThumb:SetScript("OnMouseDown", function()
+    if arg1 == "LeftButton" then
+      this.dragging = true
+      this.dragStartY = select(2, GetCursorPosition()) / UIParent:GetEffectiveScale()
+      this.dragStartScroll = scrollFrame:GetVerticalScroll()
+    end
+  end)
+
+  scrollThumb:SetScript("OnMouseUp", function()
+    this.dragging = false
+  end)
+
+  scrollThumb:SetScript("OnUpdate", function()
+    if this.dragging then
+      local currentY = select(2, GetCursorPosition()) / UIParent:GetEffectiveScale()
+      local deltaY = this.dragStartY - currentY
+
+      local maxScroll = scrollChild:GetHeight() - scrollFrame:GetHeight()
+      if maxScroll <= 0 then return end
+
+      local thumbRange = scrollBar:GetHeight() - scrollThumb:GetHeight()
+      local scrollDelta = (deltaY / thumbRange) * maxScroll
+      local newScroll = math.max(0, math.min(this.dragStartScroll + scrollDelta, maxScroll))
+
+      scrollFrame:SetVerticalScroll(newScroll)
+
+      -- Update thumb position
+      local scrollPercent = newScroll / maxScroll
+      scrollThumb:ClearAllPoints()
+      scrollThumb:SetPoint("TOP", scrollBar, "TOP", 0, -scrollPercent * thumbRange)
+    end
+  end)
+
+  -- Toggle dropdown
+  dropdown:SetScript("OnClick", function()
+    if this.isOpen then
+      this.list:Hide()
+      this.isOpen = false
+      this.arrow:SetText("v")
+    else
+      PopulateList()
+
+      -- Smart positioning: check if list would go off-screen
+      local scale = UIParent:GetEffectiveScale()
+      local dropdownBottom = this:GetBottom() * scale
+      local listHeight = list:GetHeight() * scale
+      local screenHeight = UIParent:GetHeight() * scale
+
+      list:ClearAllPoints()
+      if dropdownBottom - listHeight - 4 < 0 then
+        -- List would go below screen - grow upward instead
+        list:SetPoint("BOTTOMLEFT", this, "TOPLEFT", 0, 2)
+        this.arrow:SetText("v")
+      else
+        -- Normal: grow downward
+        list:SetPoint("TOPLEFT", this, "BOTTOMLEFT", 0, -2)
+        this.arrow:SetText("^")
+      end
+
+      this.list:Show()
+      this.isOpen = true
+
+      -- Scroll to selected item if any
+      if this.selectedValue then
+        for i, fontName in ipairs(this.items or {}) do
+          if fontName == this.selectedValue then
+            local targetScroll = (i - 1) * itemHeight
+            local maxScroll = scrollChild:GetHeight() - scrollFrame:GetHeight()
+            if maxScroll > 0 then
+              targetScroll = math.min(targetScroll, maxScroll)
+              scrollFrame:SetVerticalScroll(targetScroll)
+
+              local scrollPercent = targetScroll / maxScroll
+              local thumbRange = scrollBar:GetHeight() - scrollThumb:GetHeight()
+              scrollThumb:ClearAllPoints()
+              scrollThumb:SetPoint("TOP", scrollBar, "TOP", 0, -scrollPercent * thumbRange)
+            end
+            break
+          end
+        end
+      end
+    end
+  end)
+
+  -- Hover effect on main button
+  local onEnter = dropdown:GetScript("OnEnter")
+  dropdown:SetScript("OnEnter", function()
+    if onEnter then onEnter() end
+    this:SetBackdropColor(0.1, 0.1, 0.1, 1)
+  end)
+
+  local onLeave = dropdown:GetScript("OnLeave")
+  dropdown:SetScript("OnLeave", function()
+    if onLeave then onLeave() end
+    this:SetBackdropColor(0.05, 0.05, 0.05, 1)
+  end)
+
+  -- Close when clicking elsewhere
+  list:SetScript("OnUpdate", function()
+    if dropdown.isOpen and not this:IsMouseOver() and not dropdown:IsMouseOver() then
+      if IsMouseButtonDown("LeftButton") then
+        this:Hide()
+        dropdown.isOpen = false
+        dropdown.arrow:SetText("v")
+      end
+    end
+  end)
+
+  -- Helper methods
+  function dropdown:GetValue()
+    return self.selectedValue
+  end
+
+  function dropdown:SetValue(fontName)
+    if not fontName then return end
+    self.selectedValue = fontName
+
+    local selectedFontPath = self.fontPaths[fontName]
+    if selectedFontPath then
+      self.selectedText:SetFont(selectedFontPath, fontSize, "OUTLINE")
+    end
+    self.selectedText:SetText(fontName)
+
+    for _, btn in ipairs(self.itemButtons) do
+      if btn.fontName == fontName then
+        btn.checkmark:Show()
+        btn.itemText:SetTextColor(0.2, 1, 0.8, 1)
+      else
+        btn.checkmark:Hide()
+        btn.itemText:SetTextColor(0.9, 0.9, 0.9, 1)
+      end
+    end
+  end
+
+  return dropdown
+end
+
 local reset = {
   config = function()
     local dialog = StaticPopupDialogs["PFQUEST_RESET"]
@@ -159,6 +577,11 @@ pfQuest_defconfig = {
   { text = L["Tracker Font Style"],
     default = "OUTLINE", type = "dropdown", config = "trackerfontstyle", values = {"", "OUTLINE", "THICKOUTLINE"} },
 
+  { text = L["Misc"] or "Misc",
+    default = nil, type = "header" },
+  { text = L["Global Settings"] or "Global Settings",
+    default = "0", type = "checkbox", config = "globalsettings" },
+
   { text = L["User Data"],
     default = nil, type = "header" },
   { text = L["Reset Configuration"],
@@ -189,6 +612,13 @@ pfQuestConfig:SetMovable(true)
 pfQuestConfig:EnableMouse(true)
 pfQuestConfig:SetClampedToScreen(true)
 pfQuestConfig:RegisterEvent("ADDON_LOADED")
+-- Settings that should be shared globally when "Global Settings" is enabled
+pfQuestConfig.globalSettingsKeys = {
+  "arrowposx", "arrowposy",  -- Arrow position
+  "trackerfont", "trackerfontstyle", "trackerfontsize",  -- Tracker fonts
+  "trackerheight", "trackerwidth",  -- Tracker dimensions
+}
+
 pfQuestConfig:SetScript("OnEvent", function()
   if arg1 == "pfQuest" or arg1 == "pfQuest-tbc" or arg1 == "pfQuest-wotlk" or arg1 == "pfQuest-Zero" then
     pfQuestConfig:LoadConfig()
@@ -200,7 +630,17 @@ pfQuestConfig:SetScript("OnEvent", function()
     pfQuest_colors = pfQuest_colors or {}
     pfQuest_config = pfQuest_config or {}
     pfQuest_track = pfQuest_track or {}
+    pfQuest_global = pfQuest_global or {}
     pfBrowser_fav = pfBrowser_fav or {["units"] = {}, ["objects"] = {}, ["items"] = {}, ["quests"] = {}}
+
+    -- Apply global settings if enabled
+    if pfQuest_config["globalsettings"] == "1" then
+      for _, key in ipairs(pfQuestConfig.globalSettingsKeys) do
+        if pfQuest_global[key] ~= nil then
+          pfQuest_config[key] = pfQuest_global[key]
+        end
+      end
+    end
 
     -- clear quest history on new characters
     if UnitXP("player") == 0 and UnitLevel("player") == 1 then
@@ -212,6 +652,14 @@ pfQuestConfig:SetScript("OnEvent", function()
     end
   end
 end)
+
+-- Helper function to save a setting to global config if global settings is enabled
+function pfQuestConfig:SaveGlobalSetting(key, value)
+  if pfQuest_config["globalsettings"] == "1" then
+    pfQuest_global = pfQuest_global or {}
+    pfQuest_global[key] = value
+  end
+end
 
 pfQuestConfig:SetScript("OnMouseDown", function()
   this:StartMoving()
@@ -421,133 +869,93 @@ function pfQuestConfig:CreateConfigEntries(config)
         frame.input.text:SetText("OK")
         pfUI.api.SkinButton(frame.input)
       elseif data.type == "dropdown" then
-        -- dropdown - create with a unique name for UIDropDownMenu functions
-        local dropdownName = "pfQuestConfigDropdown" .. count
-        frame.input = CreateFrame("Frame", dropdownName, frame, "UIDropDownMenuTemplate")
-        frame.input:SetWidth(120)
-        -- Adjust positioning to align with text boxes and checkboxes
-        -- UIDropDownMenuTemplate has internal offset, so we compensate
-        frame.input:SetPoint("TOPRIGHT", -5, -2)
-
-        frame.input.config = data.config
-
-        -- Store font paths for later use
-        local fontPaths = {}
+        -- Check if this is a font dropdown - use custom font choice dropdown
         if data.values == "fonts" then
-          fontPaths["FranzBold"] = pfUI.font_default
-          fontPaths["Arial"] = "Fonts\\ARIALN.TTF"
-          fontPaths["Skurri"] = "Fonts\\SKURRI.TTF"
-          fontPaths["Morpheus"] = "Fonts\\MORPHEUS.TTF"
-          fontPaths["IMMORTAL"] = "Fonts\\IMMORTAL.TTF"
-
-          -- add LSM fonts if available
-          if LibStub then
-            local LSM = LibStub:GetLibrary("LibSharedMedia-3.0", true)
-            if LSM then
-              for fontName, fontPath in pairs(LSM:HashTable("font")) do
-                fontPaths[fontName] = fontPath
-              end
-            end
-          end
-          frame.input.fontPaths = fontPaths
-        end
-
-        -- Store sorted values for font preview
-        frame.input.sortedValues = nil
-
-        -- initialize dropdown
-        UIDropDownMenu_Initialize(frame.input, function()
-          local values = data.values
-          local sortedValues = {}
-
-          if values == "fonts" then
-            -- Create sorted array of font names
-            for fontName in pairs(frame.input.fontPaths) do
-              table.insert(sortedValues, fontName)
-            end
-            table.sort(sortedValues)
-          elseif type(values) == "table" and values[1] then
-            -- Already an array, keep as is
-            sortedValues = values
-          else
-            -- convert hash to array and sort
-            for k, v in pairs(values) do
-              table.insert(sortedValues, k)
-            end
-            table.sort(sortedValues)
-          end
-
-          -- Store sorted values for font preview application
-          frame.input.sortedValues = sortedValues
-
           local current = pfQuest_config[data.config] or data.default
+          frame.input = CreateFontChoiceDropdown(frame, data.config, current, function(fontName)
+            pfQuest_config[data.config] = fontName
 
-          -- Add buttons
-          for idx, name in ipairs(sortedValues) do
-            local info = {}
-            info.text = name
-            info.value = name
-            info.checked = (current == name)
-            info.func = function()
-              pfQuest_config[data.config] = this.value
-              UIDropDownMenu_SetText(frame.input, this.value)
-
-              -- Refresh tracker fonts when font or style changes
-              if data.config == "trackerfont" or data.config == "trackerfontstyle" then
-                if _G.RefreshTrackerFonts then
-                  _G.RefreshTrackerFonts()
-                end
+            -- Refresh tracker fonts when font changes
+            if data.config == "trackerfont" then
+              if _G.RefreshTrackerFonts then
+                _G.RefreshTrackerFonts()
               end
-
-              pfQuest:ResetAll()
             end
-            UIDropDownMenu_AddButton(info)
-          end
 
-          -- Apply font preview to dropdown buttons after they're created
-          if data.values == "fonts" and frame.input.fontPaths then
-            -- Delay font application slightly to ensure buttons exist
-            local fontTimer = CreateFrame("Frame")
-            local attempts = 0
-            fontTimer:SetScript("OnUpdate", function()
-              attempts = attempts + 1
-              if attempts <= 5 then
-                for idx, fontName in ipairs(sortedValues) do
-                  local button = getglobal("DropDownList1Button" .. idx)
-                  if button and button.normalText then
-                    local fontPath = frame.input.fontPaths[fontName]
-                    if fontPath then
-                      button.normalText:SetFont(fontPath, 12, "OUTLINE")
-                    end
+            pfQuest:ResetAll()
+          end)
+
+          frame.input:SetPoint("RIGHT", -20, 0)
+          frame.input.config = data.config
+        else
+          -- Regular dropdown using UIDropDownMenu for non-font values
+          local dropdownName = "pfQuestConfigDropdown" .. count
+          frame.input = CreateFrame("Frame", dropdownName, frame, "UIDropDownMenuTemplate")
+          frame.input:SetWidth(120)
+          frame.input:SetPoint("TOPRIGHT", -5, -2)
+          frame.input.config = data.config
+
+          -- initialize dropdown
+          UIDropDownMenu_Initialize(frame.input, function()
+            local values = data.values
+            local sortedValues = {}
+
+            if type(values) == "table" and values[1] then
+              -- Already an array, keep as is
+              sortedValues = values
+            else
+              -- convert hash to array and sort
+              for k, v in pairs(values) do
+                table.insert(sortedValues, k)
+              end
+              table.sort(sortedValues)
+            end
+
+            local current = pfQuest_config[data.config] or data.default
+
+            -- Add buttons
+            for idx, name in ipairs(sortedValues) do
+              local info = {}
+              info.text = name
+              info.value = name
+              info.checked = (current == name)
+              info.func = function()
+                pfQuest_config[data.config] = this.value
+                UIDropDownMenu_SetText(frame.input, this.value)
+
+                -- Refresh tracker fonts when style changes
+                if data.config == "trackerfontstyle" then
+                  if _G.RefreshTrackerFonts then
+                    _G.RefreshTrackerFonts()
                   end
                 end
-              else
-                this:Hide()
+
+                pfQuest:ResetAll()
               end
-            end)
-          end
+              UIDropDownMenu_AddButton(info)
+            end
+          end)
 
-        end)
+          -- store current value for selection
+          local current = pfQuest_config[data.config] or data.default
+          frame.input.currentValue = current
 
-        -- store current value for selection
-        local current = pfQuest_config[data.config] or data.default
-        frame.input.currentValue = current
+          -- defer all UIDropDownMenu setup to OnShow to ensure structure is ready
+          frame.input:SetScript("OnShow", function()
+            if this.initialized then return end
 
-        -- defer all UIDropDownMenu setup to OnShow to ensure structure is ready
-        frame.input:SetScript("OnShow", function()
-          if this.initialized then return end
+            UIDropDownMenu_SetWidth(this, 120)
+            UIDropDownMenu_SetButtonWidth(this, 125)
+            UIDropDownMenu_JustifyText(this, "RIGHT")
 
-          UIDropDownMenu_SetWidth(this, 120)
-          UIDropDownMenu_SetButtonWidth(this, 125)
-          UIDropDownMenu_JustifyText(this, "RIGHT")
+            local currentValue = pfQuest_config[data.config] or data.default
+            if currentValue and currentValue ~= "" then
+              UIDropDownMenu_SetText(this, currentValue)
+            end
 
-          local currentValue = pfQuest_config[data.config] or data.default
-          if currentValue and currentValue ~= "" then
-            UIDropDownMenu_SetText(this, currentValue)
-          end
-
-          this.initialized = true
-        end)
+            this.initialized = true
+          end)
+        end
       end
 
       -- increase size and zoom back due to blizzard backdrop reasons...
