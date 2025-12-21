@@ -844,7 +844,7 @@ function tracker.ButtonEvent(self)
     if perkData.perkLevel then
       local perkLevel = perkData.perkLevel or 0
       local rankColor = GetRankColor(perkLevel)
-      rankText = string.format(" %sRank %d|r", rankColor, perkLevel)
+      rankText = string.format(" %s[Rank %d]|r", rankColor, perkLevel)
     end
 
     self.text:SetText(string.format("%s%s |cffaaaaaa(%s%s%%|cffaaaaaa)|r", perkData.perkNameColored or title, rankText, colorperc, ceil(percent)))
