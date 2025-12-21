@@ -888,6 +888,17 @@ function tracker.ButtonEvent(self)
       -- Handle $n (newline placeholder) - replace with space
       taskText = string.gsub(taskText, "%$n", " ")
 
+      -- Handle $d and $#d (damage placeholders) - remove them since we don't have spell data
+      taskText = string.gsub(taskText, "%$%d*d", "")
+
+      -- Handle $r (relative level placeholder) - player level minus 3
+      local playerLevel = UnitLevel("player") or 80
+      local relativeLevel = playerLevel - 3
+      taskText = string.gsub(taskText, "%$r%+?", tostring(relativeLevel))
+
+      -- Handle $#s (plural markers like $1s) - just replace with 's'
+      taskText = string.gsub(taskText, "%$%d+s", "s")
+
       -- Fix color reset before % sign - move |r after the %
       taskText = string.gsub(taskText, "|r%%", "%%|r")
 
