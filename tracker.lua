@@ -180,7 +180,9 @@ tracker:SetScript("OnEvent", function()
       if SCL.RegisterCallback and SCL.Events and not tracker.sclCallbackRegistered then
         SCL.RegisterCallback(tracker, SCL.Events.CustomGameDataFinish, function()
           if tracker.mode == "PERK_TRACKING" then
-            pfMap:UpdateNodes()
+            -- Delay the update slightly to ensure SCL has finished processing new data
+            -- This prevents showing stale rank info when a perk levels up
+            tracker.pendingPerkUpdate = GetTime() + 0.2
           end
         end)
         tracker.sclCallbackRegistered = true
@@ -206,6 +208,14 @@ tracker:SetScript("OnMouseUp",function()
 end)
 
 tracker:SetScript("OnUpdate", function()
+  -- Check for pending perk update (delayed to ensure SCL data is fresh)
+  if tracker.pendingPerkUpdate and GetTime() >= tracker.pendingPerkUpdate then
+    tracker.pendingPerkUpdate = nil
+    if tracker.mode == "PERK_TRACKING" then
+      pfMap:UpdateNodes()
+    end
+  end
+
   -- Use MEDIUM strata - above most UI but below map/dialogs
   if this.strata ~= "MEDIUM" then
     this:SetFrameStrata("MEDIUM")
