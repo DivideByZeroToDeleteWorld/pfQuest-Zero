@@ -65,7 +65,17 @@ tracker:SetMovable(true)
 tracker:EnableMouse(true)
 tracker:SetClampedToScreen(true)
 tracker:RegisterEvent("PLAYER_ENTERING_WORLD")
+tracker:RegisterEvent("TRACKED_ACHIEVEMENT_LIST_CHANGED")
+tracker:RegisterEvent("TRACKED_ACHIEVEMENT_UPDATE")
 tracker:SetScript("OnEvent", function()
+  -- Handle achievement tracking events - refresh tracker if in achievement mode
+  if event == "TRACKED_ACHIEVEMENT_LIST_CHANGED" or event == "TRACKED_ACHIEVEMENT_UPDATE" then
+    if tracker.mode == "ACHIEVEMENT_TRACKING" then
+      pfMap:UpdateNodes()
+    end
+    return
+  end
+
   -- update font sizes according to config
   fontsize = tonumber(pfQuest_config["trackerfontsize"]) or 12
 
@@ -142,6 +152,16 @@ tracker:SetScript("OnEvent", function()
     local SCL = LibStub and LibStub("SynastriaCoreLib-1.0", true)
     if not SCL or not SCL.Perks then
       tracker.btnperks:Hide()
+    else
+      -- Register callback for perk data updates
+      if SCL.RegisterCallback and SCL.Events and not tracker.sclCallbackRegistered then
+        SCL.RegisterCallback(tracker, SCL.Events.CustomGameDataFinish, function()
+          if tracker.mode == "PERK_TRACKING" then
+            pfMap:UpdateNodes()
+          end
+        end)
+        tracker.sclCallbackRegistered = true
+      end
     end
   end
 end)
@@ -163,16 +183,10 @@ tracker:SetScript("OnMouseUp",function()
 end)
 
 tracker:SetScript("OnUpdate", function()
-  if WorldMapFrame:IsShown() then
-    if this.strata ~= "FULLSCREEN_DIALOG" then
-      this:SetFrameStrata("FULLSCREEN_DIALOG")
-      this.strata = "FULLSCREEN_DIALOG"
-    end
-  else
-    if this.strata ~= "BACKGROUND" then
-      this:SetFrameStrata("BACKGROUND")
-      this.strata = "BACKGROUND"
-    end
+  -- Use MEDIUM strata - above most UI but below map/dialogs
+  if this.strata ~= "MEDIUM" then
+    this:SetFrameStrata("MEDIUM")
+    this.strata = "MEDIUM"
   end
 
   local alpha = this.backdrop:GetAlpha()
@@ -299,6 +313,41 @@ do -- button panel
       end
     else
       tracker.mode = "PERK_TRACKING"
+      tracker.Reset()
+      tracker.ButtonEvent(tracker.buttons[1])
+    end
+  end)
+
+  tracker.btnachievements = CreateButton("achievements", "TOPLEFT", pfQuest_Loc["Show Tracked Achievements"] or "Show Tracked Achievements", function()
+    if tracker.mode == "ACHIEVEMENT_TRACKING" then
+      -- Already in achievement mode - toggle expand/collapse all
+      local allCollapsed = true
+
+      -- Check if all achievements are collapsed
+      for id, button in pairs(tracker.buttons) do
+        if not button.empty and button.title and expand_states[button.title] == 1 then
+          allCollapsed = false
+          break
+        end
+      end
+
+      -- Toggle: if all collapsed, expand all; otherwise collapse all
+      local newState = allCollapsed and 1 or 0
+
+      for id, button in pairs(tracker.buttons) do
+        if not button.empty and button.title then
+          expand_states[button.title] = newState
+        end
+      end
+
+      -- Refresh all buttons to apply new state
+      for id, button in pairs(tracker.buttons) do
+        if not button.empty then
+          tracker.ButtonEvent(button)
+        end
+      end
+    else
+      tracker.mode = "ACHIEVEMENT_TRACKING"
       tracker.Reset()
       tracker.ButtonEvent(tracker.buttons[1])
     end
@@ -473,6 +522,20 @@ function tracker.ButtonClick()
       end
     end
   elseif IsShiftKeyDown() then
+    -- Handle achievement mode - open achievement panel
+    if tracker.mode == "ACHIEVEMENT_TRACKING" and this.node and this.node.achievementData then
+      if AchievementFrame_LoadUI then AchievementFrame_LoadUI() end
+      if AchievementFrame and AchievementFrame:IsShown() then
+        AchievementFrame:Hide()
+      else
+        ShowUIPanel(AchievementFrame)
+        if AchievementFrame_SelectAchievement and this.node.achievementData.achievementID then
+          AchievementFrame_SelectAchievement(this.node.achievementData.achievementID)
+        end
+      end
+      return
+    end
+
     -- mark as done if node is quest and not in questlog
     if this.node.questid and not this.node.qlogid then
       -- mark as done in history
@@ -841,6 +904,132 @@ function tracker.ButtonEvent(self)
     end
 
     self:SetHeight(actualHeight)
+  elseif tracker.mode == "ACHIEVEMENT_TRACKING" then
+    local achievementData = node.achievementData
+    if not achievementData then return end
+
+    -- write expand state
+    if not expand_states[title] then
+      expand_states[title] = pfQuest_config["trackerexpand"] == "1" and 1 or 0
+    end
+
+    local expanded = expand_states[title] == 1 and true or nil
+
+    -- Calculate progress percentage
+    local numCriteria = achievementData.numCriteria or 0
+    local totalCompleted = achievementData.totalCompleted or 0
+    local percent = 0
+
+    if achievementData.completed then
+      percent = 100
+    elseif numCriteria > 0 then
+      percent = (totalCompleted / numCriteria) * 100
+    end
+
+    -- Set title with progress
+    local r, g, b = pfMap.tooltip:GetColor(totalCompleted, numCriteria > 0 and numCriteria or 1)
+    local colorperc = string.format("|cff%02x%02x%02x", r*255, g*255, b*255)
+
+    -- Color the achievement name yellow (achievement color)
+    local achievementColor = achievementData.completed and "|cff00ff00" or "|cffffff00"
+
+    self.tracked = true
+    self.perc = percent
+
+    -- Don't show percentage for empty state
+    if achievementData.name == "No Achievements Tracked" then
+      self.text:SetText("|cffaaaaaa" .. achievementData.name .. "|r")
+    else
+      self.text:SetText(string.format("%s%s|r |cffaaaaaa(%s%s%%|cffaaaaaa)|r", achievementColor, achievementData.name or title, colorperc, ceil(percent)))
+    end
+    self.text:SetTextColor(1, 1, 1)
+    self.tooltip = "|cff33ffcc<Click>|r Expand/Collapse\n|cff33ffcc<Shift-Click>|r Open Achievement Panel"
+
+    -- Initialize objectives table if needed
+    if not self.objectives then
+      self.objectives = {}
+    end
+
+    -- Track total height from objectives
+    local objectivesHeight = 0
+
+    -- Show criteria as objectives if expanded or in progress
+    local criteria = achievementData.criteria or {}
+    if (expanded or (percent > 0 and percent < 100)) and table.getn(criteria) > 0 then
+      local trackerWidth = tonumber(pfQuest_config["trackerwidth"]) or 300
+      local objectiveWidth = trackerWidth - 30
+
+      for i, criterion in ipairs(criteria) do
+        if not self.objectives[i] then
+          self.objectives[i] = self:CreateFontString(nil, "HIGH", "GameFontNormal")
+          self.objectives[i]:SetFont(_G.GetTrackerFont(), fontsize, _G.GetTrackerFontStyle())
+          self.objectives[i]:SetJustifyH("LEFT")
+          self.objectives[i]:SetJustifyV("TOP")
+          self.objectives[i]:SetWordWrap(true)
+          self.objectives[i]:SetNonSpaceWrap(true)
+        end
+
+        self.objectives[i]:SetWidth(objectiveWidth)
+
+        -- Position the objective
+        local objOffset = -(fontsize + 3)
+        if i > 1 then
+          self.objectives[i]:ClearAllPoints()
+          self.objectives[i]:SetPoint("TOPLEFT", self.objectives[i-1], "BOTTOMLEFT", 0, -2)
+        else
+          self.objectives[i]:ClearAllPoints()
+          self.objectives[i]:SetPoint("TOPLEFT", self, "TOPLEFT", 20, objOffset)
+        end
+
+        -- Format criterion text with progress
+        local criterionText = criterion.name or ""
+        local cr, cg, cb
+
+        if criterion.completed then
+          cr, cg, cb = 0, 1, 0  -- Green for completed
+          criterionText = string.format("|cff00ff00- %s|r", criterionText)
+        elseif criterion.reqQuantity and criterion.reqQuantity > 1 then
+          cr, cg, cb = pfMap.tooltip:GetColor(criterion.quantity or 0, criterion.reqQuantity)
+          local progressColor = string.format("|cff%02x%02x%02x", cr*255, cg*255, cb*255)
+          criterionText = string.format("|cffffffff- %s:|r %s%d/%d|r", criterionText, progressColor, criterion.quantity or 0, criterion.reqQuantity)
+        else
+          cr, cg, cb = 0.7, 0.7, 0.7  -- Gray for incomplete
+          criterionText = string.format("|cffaaaaaa- %s|r", criterionText)
+        end
+
+        self.objectives[i]:SetText(criterionText)
+        self.objectives[i]:SetTextColor(1, 1, 1)
+        self.objectives[i]:Show()
+
+        objectivesHeight = objectivesHeight + self.objectives[i]:GetHeight() + (i > 1 and 2 or 0)
+      end
+
+      -- Hide extra objectives
+      for i = table.getn(criteria) + 1, table.getn(self.objectives) do
+        if self.objectives[i] then
+          self.objectives[i]:Hide()
+        end
+      end
+    else
+      -- Hide all objectives if collapsed
+      for i = 1, table.getn(self.objectives) do
+        if self.objectives[i] then
+          self.objectives[i]:Hide()
+        end
+      end
+    end
+
+    -- Calculate total height
+    local actualHeight
+    if objectivesHeight > 0 then
+      local titleArea = fontsize + 3
+      local bottomPadding = 3
+      actualHeight = titleArea + objectivesHeight + bottomPadding
+    else
+      actualHeight = titlerowheight
+    end
+
+    self:SetHeight(actualHeight)
   end
 
   -- sort all tracker entries
@@ -927,6 +1116,8 @@ function tracker.ButtonAdd(title, node)
     if node.addon ~= "PFDB" then return end
   elseif tracker.mode == "PERK_TRACKING" then -- skip everything that isn't a perk task
     if node.addon ~= "PERK" then return end
+  elseif tracker.mode == "ACHIEVEMENT_TRACKING" then -- skip everything that isn't an achievement
+    if node.addon ~= "ACHIEVEMENT" then return end
   end
 
   local id
@@ -1056,6 +1247,79 @@ function tracker.Reset()
     else
       -- SynastriaCoreLib not available
       DEFAULT_CHAT_FRAME:AddMessage("|cff33ffccpfQuest:|r SynastriaCoreLib not found. Perk tracking unavailable.")
+    end
+    return
+  end
+
+  -- Handle ACHIEVEMENT_TRACKING mode
+  if tracker.mode == "ACHIEVEMENT_TRACKING" then
+    local trackedAchievements = {}
+
+    -- Use Blizzard API to get tracked achievements
+    if GetTrackedAchievements then
+      trackedAchievements = { GetTrackedAchievements() }
+    end
+
+    if trackedAchievements and table.getn(trackedAchievements) > 0 then
+      for _, achievementID in ipairs(trackedAchievements) do
+        local id, name, points, completed, month, day, year, description, flags, icon, rewardText, isGuild, wasEarnedByMe, earnedBy = GetAchievementInfo(achievementID)
+        if name then
+          -- Build criteria data
+          local numCriteria = GetAchievementNumCriteria(achievementID)
+          local criteria = {}
+          local totalCompleted = 0
+
+          for i = 1, numCriteria do
+            local criteriaName, criteriaType, criteriaCompleted, quantity, reqQuantity, charName, flags, assetID, quantityString, criteriaID = GetAchievementCriteriaInfo(achievementID, i)
+            if criteriaName and criteriaName ~= "" then
+              table.insert(criteria, {
+                name = criteriaName,
+                completed = criteriaCompleted,
+                quantity = quantity,
+                reqQuantity = reqQuantity,
+                quantityString = quantityString,
+              })
+              if criteriaCompleted then
+                totalCompleted = totalCompleted + 1
+              end
+            end
+          end
+
+          local achievementData = {
+            achievementID = achievementID,
+            name = name,
+            description = description,
+            points = points,
+            completed = completed,
+            icon = icon,
+            criteria = criteria,
+            numCriteria = numCriteria,
+            totalCompleted = totalCompleted,
+          }
+
+          local node = {
+            addon = "ACHIEVEMENT",
+            achievementData = achievementData,
+            texture = pfQuestConfig.path .. "\\img\\tracker_achievements",
+          }
+          tracker.ButtonAdd(name, node)
+        end
+      end
+    else
+      -- No tracked achievements
+      local emptyNode = {
+        addon = "ACHIEVEMENT",
+        achievementData = {
+          name = "No Achievements Tracked",
+          description = "Track achievements from the Achievement panel (Y)",
+          criteria = {},
+          numCriteria = 0,
+          totalCompleted = 0,
+          completed = false,
+        },
+        texture = pfQuestConfig.path .. "\\img\\tracker_achievements",
+      }
+      tracker.ButtonAdd("No Achievements Tracked", emptyNode)
     end
     return
   end

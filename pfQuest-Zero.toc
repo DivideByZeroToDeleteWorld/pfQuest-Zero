@@ -3,7 +3,7 @@
 ## Author: Shagu |cFFFF4DB3[|r|cFF1AE633Z|r|cFFB31AE6ero|r|cFFFF4DB3]|r
 ## Notes: A Questhelper and Database
 ## Notes-ruRU: Облегченный помощник заданий и база данных
-## Version: 1.3.1-Zero+pfQuest.7.0.1
+## Version: 1.4.0-Zero+pfQuest.7.0.1
 ## OptionalDeps: pfUI-wotlk, LibSharedMedia-3.0
 ## SavedVariables: pfQuest_questcache, pfQuest_global
 ## SavedVariablesPerCharacter: pfQuest_config, pfBrowser_fav, pfQuest_history, pfQuest_colors, pfQuest_server, pfQuest_track
