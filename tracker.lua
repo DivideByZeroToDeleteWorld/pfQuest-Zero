@@ -5,6 +5,29 @@ local fontsize = 12
 local panelheight = 16
 local entryheight = 20
 
+-- Helper function to get gradient color from red (rank 0) to green (rank 10)
+local function GetRankColor(rank)
+  rank = tonumber(rank) or 0
+  if rank < 0 then rank = 0 end
+  if rank > 10 then rank = 10 end
+
+  -- Gradient from red (0) -> yellow (5) -> green (10)
+  local r, g, b
+  if rank <= 5 then
+    -- Red to Yellow (0-5)
+    r = 1.0
+    g = rank / 5
+    b = 0
+  else
+    -- Yellow to Green (5-10)
+    r = 1.0 - ((rank - 5) / 5)
+    g = 1.0
+    b = 0
+  end
+
+  return string.format("|cff%02x%02x%02x", r * 255, g * 255, b * 255)
+end
+
 local function HideTooltip()
   GameTooltip:Hide()
 end
@@ -815,7 +838,16 @@ function tracker.ButtonEvent(self)
 
     self.tracked = true
     self.perc = percent
-    self.text:SetText(string.format("%s |cffaaaaaa(%s%s%%|cffaaaaaa)|r", perkData.perkNameColored or title, colorperc, ceil(percent)))
+
+    -- Add rank display with gradient color (skip for "All Tasks Complete!" message)
+    local rankText = ""
+    if perkData.perkLevel then
+      local perkLevel = perkData.perkLevel or 0
+      local rankColor = GetRankColor(perkLevel)
+      rankText = string.format(" %sRank %d|r", rankColor, perkLevel)
+    end
+
+    self.text:SetText(string.format("%s%s |cffaaaaaa(%s%s%%|cffaaaaaa)|r", perkData.perkNameColored or title, rankText, colorperc, ceil(percent)))
     self.text:SetTextColor(1, 1, 1)
     self.tooltip = pfQuest_Loc["Perk Task"] or "|cff33ffcc<Click>|r Unfold/Fold Task"
 
