@@ -174,6 +174,10 @@ end
 local lastpos, completed = 0, 0
 local function sortfunc(a,b) return a[4] < b[4] end
 pfQuest.route:SetScript("OnUpdate", function()
+  -- Ensure map is set to current zone for accurate position (fixes WDM subzone map issues)
+  if not WorldMapFrame:IsShown() then
+    SetMapToCurrentZone()
+  end
   local xplayer, yplayer = GetPlayerMapPosition("player")
   local wrongmap = xplayer == 0 and yplayer == 0 and true or nil
   local curpos = xplayer + yplayer
@@ -357,6 +361,10 @@ pfQuest.route.arrow:SetScript("OnUpdate", function()
   -- abort if the frame is not initialized yet
   if not this.parent then return end
 
+  -- Ensure map is set to current zone for accurate position (fixes WDM subzone map issues)
+  if not WorldMapFrame:IsShown() then
+    SetMapToCurrentZone()
+  end
   xplayer, yplayer = GetPlayerMapPosition("player")
   wrongmap = xplayer == 0 and yplayer == 0 and true or nil
   target = this.parent.coords and this.parent.coords[1] and this.parent.coords[1][4] and this.parent.coords[1] or nil
