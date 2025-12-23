@@ -444,6 +444,72 @@ local customids = {
   ["AlteracValley"] = 2597,
 }
 
+-- Subzone data for WDM/custom map addons that show subzone maps
+-- Maps subzone MapInfo name to: parent zone ID and bounding box within parent zone
+-- Bounds are percentages (0-100) of the parent zone map where the subzone is located
+-- Format: { parent = zoneID, minX = left%, maxX = right%, minY = top%, maxY = bottom% }
+local subzone_data = {
+  -- Dun Morogh (1) subzones - bounds are estimates, adjust as needed
+  ["ColdridgeValley"] = { parent = 1, minX = 19, maxX = 36, minY = 68, maxY = 93 },
+  ["ColdridgePass"] = { parent = 1, minX = 30, maxX = 45, minY = 60, maxY = 75 },
+  ["ChillBreezeValley"] = { parent = 1, minX = 35, maxX = 50, minY = 45, maxY = 60 },
+  ["TheGrizzledDen"] = { parent = 1, minX = 38, maxX = 52, minY = 55, maxY = 70 },
+  ["Anvilmar"] = { parent = 1, minX = 23, maxX = 32, minY = 72, maxY = 82 },
+  ["FrostmaneHold"] = { parent = 1, minX = 20, maxX = 35, minY = 55, maxY = 70 },
+  ["GolBolarQuarry"] = { parent = 1, minX = 60, maxX = 75, minY = 65, maxY = 80 },
+  ["Kharanos"] = { parent = 1, minX = 43, maxX = 58, minY = 40, maxY = 55 },
+  ["BrewnallVillage"] = { parent = 1, minX = 25, maxX = 40, minY = 40, maxY = 55 },
+  ["ShimmerRidge"] = { parent = 1, minX = 68, maxX = 83, minY = 48, maxY = 63 },
+  ["AmberstillRanch"] = { parent = 1, minX = 60, maxX = 75, minY = 50, maxY = 65 },
+  ["TheTundridHills"] = { parent = 1, minX = 48, maxX = 63, minY = 55, maxY = 70 },
+  ["IceflowLake"] = { parent = 1, minX = 28, maxX = 43, minY = 25, maxY = 40 },
+  ["HelmsBedLake"] = { parent = 1, minX = 70, maxX = 85, minY = 40, maxY = 55 },
+  ["GatesOfIronforge"] = { parent = 1, minX = 48, maxX = 63, minY = 30, maxY = 45 },
+  ["SteelgrillsDepot"] = { parent = 1, minX = 45, maxX = 60, minY = 45, maxY = 60 },
+  -- Elwynn Forest (12) subzones - bounds are estimates, adjust as needed
+  ["NorthshireValley"] = { parent = 12, minX = 35, maxX = 55, minY = 25, maxY = 55 },
+  ["NorthshireAbbey"] = { parent = 12, minX = 43, maxX = 53, minY = 35, maxY = 50 },
+  ["EchoRidgeMine"] = { parent = 12, minX = 45, maxX = 55, minY = 25, maxY = 35 },
+  ["NorthshireVineyards"] = { parent = 12, minX = 50, maxX = 60, minY = 38, maxY = 50 },
+  ["Goldshire"] = { parent = 12, minX = 38, maxX = 52, minY = 58, maxY = 72 },
+  ["ForestsEdge"] = { parent = 12, minX = 25, maxX = 40, minY = 48, maxY = 62 },
+  ["StoneCairnLake"] = { parent = 12, minX = 70, maxX = 85, minY = 45, maxY = 60 },
+  ["CrystalLake"] = { parent = 12, minX = 48, maxX = 58, minY = 55, maxY = 68 },
+  ["MirrorLake"] = { parent = 12, minX = 28, maxX = 42, minY = 55, maxY = 70 },
+  ["TowerOfAzora"] = { parent = 12, minX = 60, maxX = 75, minY = 70, maxY = 85 },
+  ["EastvaleLoggingCamp"] = { parent = 12, minX = 78, maxX = 92, minY = 55, maxY = 72 },
+  ["BrackwellPumpkinPatch"] = { parent = 12, minX = 65, maxX = 78, minY = 65, maxY = 78 },
+  ["TheStonefieldFarm"] = { parent = 12, minX = 30, maxX = 45, minY = 78, maxY = 90 },
+  ["TheMaclureVineyards"] = { parent = 12, minX = 55, maxX = 68, minY = 82, maxY = 95 },
+  ["JasperlodeMine"] = { parent = 12, minX = 58, maxX = 68, minY = 45, maxY = 58 },
+  ["FargodeepMine"] = { parent = 12, minX = 35, maxX = 48, minY = 78, maxY = 90 },
+  ["WestbrookGarrison"] = { parent = 12, minX = 70, maxX = 85, minY = 88, maxY = 98 },
+  -- Add more subzones as needed...
+}
+
+-- Get parent zone ID for a subzone (returns nil if not a known subzone)
+function pfMap:GetParentZone(mapInfo)
+  local data = subzone_data[mapInfo]
+  return data and data.parent or nil
+end
+
+-- Get subzone bounds for coordinate transformation
+function pfMap:GetSubzoneBounds(mapInfo)
+  return subzone_data[mapInfo]
+end
+
+-- Transform parent zone coordinates to subzone coordinates
+-- parentX, parentY are 0-100 percentages in parent zone
+-- Returns transformed x, y for the subzone map (0-100 percentages)
+function pfMap:TransformToSubzone(parentX, parentY, bounds)
+  if not bounds then return parentX, parentY end
+
+  local x = (parentX - bounds.minX) / (bounds.maxX - bounds.minX) * 100
+  local y = (parentY - bounds.minY) / (bounds.maxY - bounds.minY) * 100
+
+  return x, y
+end
+
 local map_zone_cache = { }
 function pfMap:GetMapID(cid, mid)
   cid = cid or GetCurrentMapContinent()
@@ -860,6 +926,16 @@ function pfMap:UpdateNodes()
   local map = pfMap:GetMapID(GetCurrentMapContinent(), GetCurrentMapZone())
   local i = 1
 
+  -- Check if we're viewing a subzone map (e.g., WDM custom maps)
+  -- If so, also look for nodes in the parent zone and transform coordinates
+  local parentMap = nil
+  local subzoneBounds = nil
+  local mapInfo = GetMapInfo()
+  if mapInfo then
+    parentMap = pfMap:GetParentZone(mapInfo)
+    subzoneBounds = pfMap:GetSubzoneBounds(mapInfo)
+  end
+
   -- reset tracker
   pfQuest.tracker.Reset()
 
@@ -868,8 +944,16 @@ function pfMap:UpdateNodes()
 
   -- refresh all nodes
   for addon, _ in pairs(pfMap.nodes) do
-    if pfMap.nodes[addon][map] then
-      for coords, node in pairs(pfMap.nodes[addon][map]) do
+    -- Check current map nodes
+    local mapToCheck = map
+    -- If no nodes for current map but we have a parent zone, use parent zone nodes
+    if not pfMap.nodes[addon][map] and parentMap and pfMap.nodes[addon][parentMap] then
+      mapToCheck = parentMap
+      -- Note: Coordinates will be relative to parent zone, not subzone
+      -- This allows arrow navigation to work, but map pins may be mispositioned
+    end
+    if pfMap.nodes[addon][mapToCheck] then
+      for coords, node in pairs(pfMap.nodes[addon][mapToCheck]) do
         if not pfMap.pins[i] then
           pfMap.pins[i] = pfMap:BuildNode("pfMapPin" .. i, WorldMapButton)
         end
@@ -901,13 +985,28 @@ function pfMap:UpdateNodes()
             pfQuest.tracker.ButtonAdd(title, node)
           end
 
-          x = x / 100 * WorldMapButton:GetWidth()
-          y = y / 100 * WorldMapButton:GetHeight()
+          -- Transform coordinates if viewing a subzone map with parent zone nodes
+          local displayX, displayY = tonumber(x), tonumber(y)
+          if subzoneBounds and mapToCheck == parentMap then
+            displayX, displayY = pfMap:TransformToSubzone(displayX, displayY, subzoneBounds)
+            -- Hide nodes that fall outside the subzone bounds (negative or >100)
+            if displayX < 0 or displayX > 100 or displayY < 0 or displayY > 100 then
+              pfMap.pins[i]:Hide()
+              i = i + 1
+              -- skip to next iteration (can't use continue in Lua 5.0)
+              displayX = nil
+            end
+          end
 
-          pfMap.pins[i]:ClearAllPoints()
-          pfMap.pins[i]:SetPoint("CENTER", WorldMapButton, "TOPLEFT", x, -y)
+          if displayX then
+            x = displayX / 100 * WorldMapButton:GetWidth()
+            y = displayY / 100 * WorldMapButton:GetHeight()
 
-          pfMap.pins[i]:Show()
+            pfMap.pins[i]:ClearAllPoints()
+            pfMap.pins[i]:SetPoint("CENTER", WorldMapButton, "TOPLEFT", x, -y)
+
+            pfMap.pins[i]:Show()
+          end
         end
 
         i = i + 1

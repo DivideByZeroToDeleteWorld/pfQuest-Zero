@@ -66,6 +66,16 @@
 
 ---
 
+## Synastria Server - Perk Support
+
+If you are playing on the **Synastria** private server and want to see **Perks** displayed in the quest tracker, you must install the **SynastriaCoreLib** addon.
+
+**Download:** [SynastriaCoreLib (Latest Release)](https://github.com/imevul/SynastriaCoreLib/releases/latest)
+
+Without this library, perk information will not be available to pfQuest-Zero.
+
+---
+
 ## Configuration
 
 Open the pfQuest configuration panel:
