@@ -87,6 +87,12 @@ All changes apply immediately!
 
 ---
 
+## Known Incompatibilities
+
+**WDM (World Drop Map) and similar subzone map addons** are not currently compatible with pfQuest-Zero. These addons modify the mapping system to display custom subzone maps, which causes pfQuest's database coordinates to be incorrect. The map IDs and X/Y coordinates returned by the game API no longer match the visual map being displayed, resulting in quest objectives and navigation arrows pointing to wrong locations.
+
+---
+
 ## Credits
 
 Based on [pfQuest](https://github.com/shagu/pfQuest) by Shagu
