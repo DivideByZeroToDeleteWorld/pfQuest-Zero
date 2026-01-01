@@ -77,6 +77,53 @@ end
 
 local expand_states = {}
 
+-- Quest timer tracking
+-- Stores {maxTime, lastUpdate} for each timed quest by questid
+local questTimers = {}
+
+-- Format seconds into mm:ss or h:mm:ss
+local function FormatTime(seconds)
+  if not seconds or seconds <= 0 then return "0:00" end
+  seconds = math.floor(seconds)
+  local hours = math.floor(seconds / 3600)
+  local mins = math.floor((seconds % 3600) / 60)
+  local secs = seconds % 60
+  if hours > 0 then
+    return string.format("%d:%02d:%02d", hours, mins, secs)
+  else
+    return string.format("%d:%02d", mins, secs)
+  end
+end
+
+-- Create a text-based progress bar that empties as time runs out
+-- Returns something like: [=========-] 2:34
+local function FormatTimerBar(remaining, maxTime)
+  if not remaining or remaining <= 0 then
+    return "|cffff0000[----------] 0:00|r"
+  end
+
+  local barWidth = 10
+  local pct = maxTime > 0 and (remaining / maxTime) or 0
+  if pct > 1 then pct = 1 end
+  local filled = math.floor(pct * barWidth + 0.5)
+  local empty = barWidth - filled
+
+  -- Color based on time remaining percentage
+  local color
+  if pct > 0.5 then
+    color = "|cff00ff00"  -- Green
+  elseif pct > 0.25 then
+    color = "|cffffff00"  -- Yellow
+  elseif pct > 0.1 then
+    color = "|cffff8800"  -- Orange
+  else
+    color = "|cffff0000"  -- Red
+  end
+
+  local bar = "[" .. string.rep("=", filled) .. string.rep("-", empty) .. "]"
+  return string.format("%s%s %s|r", color, bar, FormatTime(remaining))
+end
+
 tracker = CreateFrame("Frame", "pfQuestMapTracker", UIParent)
 tracker:Hide()
 tracker:SetPoint("LEFT", UIParent, "LEFT", 0, 0)
@@ -128,7 +175,11 @@ tracker:SetScript("OnEvent", function()
 
   -- get font style
   _G.GetTrackerFontStyle = function()
-    return pfQuest_config["trackerfontstyle"] or "OUTLINE"
+    local style = pfQuest_config["trackerfontstyle"]
+    if style and style ~= "" then
+      return style
+    end
+    return "OUTLINE"
   end
 
   -- function to refresh all tracker fonts and layout
@@ -150,9 +201,9 @@ tracker:SetScript("OnEvent", function()
 
       -- update objective fonts for this button
       if button.objectives then
-        for i = 1, table.getn(button.objectives) do
-          if button.objectives[i] then
-            button.objectives[i]:SetFont(GetTrackerFont(), fontsize, GetTrackerFontStyle())
+        for i, obj in pairs(button.objectives) do
+          if obj then
+            obj:SetFont(GetTrackerFont(), fontsize, GetTrackerFontStyle())
           end
         end
       end
@@ -188,6 +239,23 @@ tracker:SetScript("OnEvent", function()
         tracker.sclCallbackRegistered = true
       end
     end
+  end
+
+  -- Schedule a delayed font refresh to ensure fonts are applied after quest list populates
+  if not tracker.fontRefreshScheduled then
+    tracker.fontRefreshScheduled = true
+    local fontRefreshFrame = CreateFrame("Frame")
+    fontRefreshFrame.elapsed = 0
+    fontRefreshFrame:SetScript("OnUpdate", function()
+      this.elapsed = this.elapsed + arg1
+      -- Wait 0.5 seconds to ensure quest list has populated
+      if this.elapsed >= 0.5 then
+        if _G.RefreshTrackerFonts then
+          _G.RefreshTrackerFonts()
+        end
+        this:Hide()
+      end
+    end)
   end
 end)
 
@@ -541,6 +609,30 @@ function tracker.ButtonUpdate()
     this.bg:SetAlpha(alpha)
     this.highlight = nil
   end
+
+  -- Update quest timer display in real-time
+  if this.questTimerActive and this.timerIndex and this.qlogid and this.objectives and this.objectives[this.timerIndex] then
+    -- Throttle updates to every 0.2 seconds
+    local now = GetTime()
+    if not this.timerLastUpdate or (now - this.timerLastUpdate) >= 0.2 then
+      this.timerLastUpdate = now
+
+      -- Must select quest first since GetQuestLogTimeLeft returns time for selected quest
+      SelectQuestLogEntry(this.qlogid)
+      local timeLeft = GetQuestLogTimeLeft and GetQuestLogTimeLeft() or nil
+      if timeLeft and timeLeft > 0 then
+        local qid = this.questid
+        local maxTime = questTimers[qid] and questTimers[qid].maxTime or timeLeft
+
+        local timerText = FormatTimerBar(timeLeft, maxTime)
+        this.objectives[this.timerIndex]:SetText("|cffcccccc\226\143\179|r " .. timerText)
+      elseif this.questTimerActive then
+        -- Timer just expired - show FAILED state and stop updating
+        this.objectives[this.timerIndex]:SetText("|cffcccccc\226\143\179|r |cffff0000FAILED|r")
+        this.questTimerActive = nil
+      end
+    end
+  end
 end
 
 function tracker.ButtonClick()
@@ -765,9 +857,98 @@ function tracker.ButtonEvent(self)
       end
     end
 
-    -- Hide any old objectives that are no longer needed
+    -- Check for quest timer and display if present
+    -- Must select the quest first since GetQuestLogTimeLeft returns time for selected quest
+    SelectQuestLogEntry(qlogid)
+    local timeLeft = GetQuestLogTimeLeft and GetQuestLogTimeLeft() or nil
+
+    -- Store quest timer info (always track, even when collapsed, so we don't lose max time)
+    if timeLeft and timeLeft > 0 then
+      if not questTimers[qid] then
+        questTimers[qid] = { maxTime = timeLeft, startTime = GetTime() }
+      else
+        -- Update max if we see a higher value (quest was just accepted)
+        if timeLeft > questTimers[qid].maxTime then
+          questTimers[qid].maxTime = timeLeft
+          questTimers[qid].startTime = GetTime()
+        end
+      end
+    end
+
+    -- Display timer bar only if expanded or quest is in progress (same logic as objectives)
+    -- Also show if we HAD a timer that's now expired (to show FAILED state)
+    local hasActiveTimer = timeLeft and timeLeft > 0
+    local hasExpiredTimer = questTimers[qid] and (not timeLeft or timeLeft <= 0)
+    local showTimer = (hasActiveTimer or hasExpiredTimer) and (expanded or (percent > 0 and percent < 100))
+
+    if showTimer then
+      local maxTime = questTimers[qid].maxTime
+
+      -- Create timer font string if needed (use a special index)
+      local timerIndex = 100  -- Use high index to not conflict with objectives
+      if not self.objectives[timerIndex] then
+        self.objectives[timerIndex] = self:CreateFontString(nil, "HIGH", "GameFontNormal")
+        self.objectives[timerIndex]:SetFont(_G.GetTrackerFont(), fontsize, _G.GetTrackerFontStyle())
+        self.objectives[timerIndex]:SetJustifyH("LEFT")
+        self.objectives[timerIndex]:SetJustifyV("TOP")
+        self.objectives[timerIndex]:SetWordWrap(false)
+      end
+
+      -- Calculate width
+      local trackerWidth = tonumber(pfQuest_config["trackerwidth"]) or 300
+      local objectiveWidth = trackerWidth - 30
+
+      self.objectives[timerIndex]:SetWidth(objectiveWidth)
+      self.objectives[timerIndex]:ClearAllPoints()
+
+      -- Position timer below last objective or below title if no objectives
+      if visibleObjectives > 0 then
+        self.objectives[timerIndex]:SetPoint("TOPLEFT", self.objectives[visibleObjectives], "BOTTOMLEFT", 0, -4)
+      else
+        local firstObjOffset = -(fontsize + 3)
+        self.objectives[timerIndex]:SetPoint("TOPLEFT", self, "TOPLEFT", 20, firstObjOffset)
+      end
+
+      -- Format and display timer with hourglass prefix to make it obvious
+      local timerText
+      if hasExpiredTimer then
+        -- Timer expired - show FAILED in red
+        timerText = "|cffff0000FAILED|r"
+        self.questTimerActive = nil  -- Stop updating
+      else
+        timerText = FormatTimerBar(timeLeft, maxTime)
+        self.questTimerActive = true  -- Keep updating
+      end
+      self.objectives[timerIndex]:SetText("|cffcccccc\226\143\179|r " .. timerText)  -- ⏳ hourglass emoji
+      self.objectives[timerIndex]:SetTextColor(1, 1, 1)
+      self.objectives[timerIndex]:Show()
+
+      -- Store reference for OnUpdate refresh
+      self.timerIndex = timerIndex
+      self.qlogid = qlogid
+
+      -- Add timer height (with extra spacing to separate from objectives)
+      local timerHeight = self.objectives[timerIndex]:GetHeight()
+      local timerSpacing = visibleObjectives > 0 and 4 or 0
+      objectivesHeight = objectivesHeight + timerHeight + timerSpacing
+    else
+      -- Timer not shown (collapsed or expired) - hide timer element and clear active flag
+      if self.objectives and self.objectives[100] then
+        self.objectives[100]:Hide()
+      end
+      self.questTimerActive = nil
+
+      -- Only clean up stored timer data if timer actually expired (not just collapsed)
+      if not timeLeft or timeLeft <= 0 then
+        if questTimers[qid] then
+          questTimers[qid] = nil
+        end
+      end
+    end
+
+    -- Hide any old objectives that are no longer needed (but not timer at index 100)
     for i = visibleObjectives + 1, table.getn(self.objectives) do
-      if self.objectives[i] then
+      if self.objectives[i] and i ~= 100 then
         self.objectives[i]:Hide()
       end
     end
@@ -1240,6 +1421,11 @@ function tracker.ButtonAdd(title, node)
     tracker.buttons[id]:SetScript("OnUpdate", tracker.ButtonUpdate)
     tracker.buttons[id]:SetScript("OnEvent", tracker.ButtonEvent)
     tracker.buttons[id]:SetScript("OnClick", tracker.ButtonClick)
+  end
+
+  -- Always ensure font is set (handles buttons created before font was configured)
+  if tracker.buttons[id].text then
+    tracker.buttons[id].text:SetFont(_G.GetTrackerFont(), fontsize, _G.GetTrackerFontStyle())
   end
 
   -- set required data

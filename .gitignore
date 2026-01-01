@@ -1,0 +1,34 @@
+# Claude AI instructions and session data
+CLAUDE.md
+**/CLAUDE.md
+.claude/
+**/.claude/
+
+# Plans and development notes
+plans/
+*.plan
+
+# Screenshots (part of original addon, not our changes)
+screenshots/
+src/pfQuest-Zero/screenshots/
+*.png
+
+# README in addon folder (should only be in project root)
+src/pfQuest-Zero/README.md
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Temporary files
+*.tmp
+*.bak
+*.log
