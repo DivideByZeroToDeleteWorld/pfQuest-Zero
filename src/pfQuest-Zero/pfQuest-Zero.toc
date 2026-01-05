@@ -6,7 +6,7 @@
 ## Version: 1.4.2-Zero+pfQuest.7.0.1
 ## OptionalDeps: pfUI-wotlk, LibSharedMedia-3.0
 ## SavedVariables: pfQuest_questcache, pfQuest_config, pfBrowser_fav, pfQuest_colors, pfQuest_server
-## SavedVariablesPerCharacter: pfQuest_history, pfQuest_track
+## SavedVariablesPerCharacter: pfQuest_history, pfQuest_track, pfQuest_timers
 init\data.xml
 init\data-tbc.xml
 init\enUS.xml

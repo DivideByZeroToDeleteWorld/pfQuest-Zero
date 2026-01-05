@@ -2,9 +2,10 @@
 local compat = pfQuestCompat
 local L = pfQuest_Loc
 
-pfQuest_history = {}
-pfQuest_colors = {}
-pfQuest_config = {}
+-- NOTE: Do NOT initialize pfQuest_history, pfQuest_colors, or pfQuest_config here!
+-- SavedVariables are loaded by WoW before ADDON_LOADED fires.
+-- Initializing them here would overwrite any saved data.
+-- They are properly initialized in the ADDON_LOADED handler below.
 
 -- ============================================================================
 -- Font helpers (LSM with fallback to base fonts)
@@ -205,7 +206,7 @@ local function CreateStyledDropdown(parent, width, options)
       end
 
       local itemBtn = CreateFrame("Button", nil, scrollChild)
-      itemBtn:SetSize(width - (needsScroll and 14 or 8), itemHeight)
+      itemBtn:SetSize(menuWidth - (needsScroll and 14 or 8), itemHeight)
       itemBtn:SetPoint("TOPLEFT", 2, -((i - 1) * itemHeight))
 
       local itemText = itemBtn:CreateFontString(nil, "OVERLAY")
@@ -377,6 +378,7 @@ local function CreateFontDropdown(parent, width, currentValue, onSelect, fontSiz
     fontSize = fontSize or 11,
     placeholder = "Select Font...",
     isFontDropdown = true,
+    menuWidth = 200,  -- Wider menu to fit long font names
   })
 
   -- Update the selected text to use the font itself for preview
@@ -545,6 +547,8 @@ pfQuest_defconfig = {
   { text = L["Tracker Font Size"], default = "12", type = "text", config = "trackerfontsize", block = "tracker" },
   { text = L["Tracker Font"], default = "FranzBold", type = "fontdropdown", config = "trackerfont", block = "tracker" },
   { text = L["Tracker Font Style"], default = "OUTLINE", type = "fontoutlinedropdown", config = "trackerfontstyle", block = "tracker" },
+  { text = L["Always Show Tracker Background"], default = "0", type = "checkbox", config = "trackerbgalways", block = "tracker" },
+  { text = L["Always Show Tracker Config Bar & BG"], default = "0", type = "checkbox", config = "trackerbaralways", block = "tracker" },
 
   -- General Block
   { text = L["General"], default = nil, type = "header", block = "general" },
@@ -565,6 +569,7 @@ pfQuest_defconfig = {
   { text = L["Questing"], default = nil, type = "header", block = "questing" },
   { text = L["Quest Tracker Visibility"], default = "0", type = "text", config = "trackeralpha", block = "questing" },
   { text = L["Quest Tracker Unfold Objectives"], default = "0", type = "checkbox", config = "trackerexpand", block = "questing" },
+  { text = L["Quest Timers Fold Into Objectives"], default = "1", type = "checkbox", config = "collapsetimer", block = "questing" },
   { text = L["Quest Objective Spawn Points (World Map)"], default = "1", type = "checkbox", config = "showspawn", block = "questing" },
   { text = L["Quest Objective Spawn Points (Mini Map)"], default = "1", type = "checkbox", config = "showspawnmini", block = "questing" },
   { text = L["Quest Objective Icons (World Map)"], default = "1", type = "checkbox", config = "showcluster", block = "questing" },
@@ -574,6 +579,7 @@ pfQuest_defconfig = {
   { text = L["Display Low Level Quest Givers"], default = "0", type = "checkbox", config = "showlowlevel", block = "questing" },
   { text = L["Display Level+3 Quest Givers"], default = "0", type = "checkbox", config = "showhighlevel", block = "questing" },
   { text = L["Display Event & Daily Quests"], default = "0", type = "checkbox", config = "showfestival", block = "questing" },
+  { text = L["Display Quest Timer Max Duration"], default = "1", type = "checkbox", config = "showtimermax", block = "questing" },
 
   -- Map & Minimap Block
   { text = L["Map & Minimap"], default = nil, type = "header", block = "map" },
@@ -810,10 +816,12 @@ local function CreateConfigPanel()
     pfQuestConfig.scrollChild:SetWidth(panelWidth - 17)
   end
 
-  -- Bottom buttons
+  -- Bottom buttons (3 buttons: Welcome Screen, Save, Save & Reload)
+  local buttonWidth = (panelWidth - 20) / 3 - 3  -- 3 buttons with spacing
+
   if not pfQuestConfig.welcome then
     pfQuestConfig.welcome = CreateFrame("Button", nil, pfQuestConfig)
-    pfQuestConfig.welcome:SetSize(panelWidth / 2 - 15, 28)
+    pfQuestConfig.welcome:SetSize(buttonWidth, 28)
     pfQuestConfig.welcome:SetPoint("BOTTOMLEFT", 5, 8)
     pfQuestConfig.welcome:SetBackdrop({
       bgFile = "Interface\\Buttons\\WHITE8X8",
@@ -827,7 +835,7 @@ local function CreateConfigPanel()
     pfQuestConfig.welcome.text = pfQuestConfig.welcome:CreateFontString(nil, "OVERLAY")
     pfQuestConfig.welcome.text:SetFont(fontPath, fontSize, "OUTLINE")
     pfQuestConfig.welcome.text:SetPoint("CENTER", 0, 0)
-    pfQuestConfig.welcome.text:SetText(L["Welcome Screen"])
+    pfQuestConfig.welcome.text:SetText(L["Welcome"])
 
     pfQuestConfig.welcome:SetScript("OnClick", function()
       pfQuestInit:Show()
@@ -842,8 +850,8 @@ local function CreateConfigPanel()
 
   if not pfQuestConfig.save then
     pfQuestConfig.save = CreateFrame("Button", nil, pfQuestConfig)
-    pfQuestConfig.save:SetSize(panelWidth / 2 - 15, 28)
-    pfQuestConfig.save:SetPoint("BOTTOMRIGHT", -5, 8)
+    pfQuestConfig.save:SetSize(buttonWidth, 28)
+    pfQuestConfig.save:SetPoint("LEFT", pfQuestConfig.welcome, "RIGHT", 5, 0)
     pfQuestConfig.save:SetBackdrop({
       bgFile = "Interface\\Buttons\\WHITE8X8",
       edgeFile = "Interface\\Buttons\\WHITE8X8",
@@ -856,9 +864,11 @@ local function CreateConfigPanel()
     pfQuestConfig.save.text = pfQuestConfig.save:CreateFontString(nil, "OVERLAY")
     pfQuestConfig.save.text:SetFont(fontPath, fontSize, "OUTLINE")
     pfQuestConfig.save.text:SetPoint("CENTER", 0, 0)
-    pfQuestConfig.save.text:SetText(L["Save & Close"])
+    pfQuestConfig.save.text:SetText(L["Save"])
 
-    pfQuestConfig.save:SetScript("OnClick", ReloadUI)
+    pfQuestConfig.save:SetScript("OnClick", function()
+      pfQuestConfig:Hide()
+    end)
     pfQuestConfig.save:SetScript("OnEnter", function()
       this:SetBackdropColor(0.15, 0.25, 0.15, 1)
     end)
@@ -867,9 +877,38 @@ local function CreateConfigPanel()
     end)
   end
 
+  if not pfQuestConfig.saveReload then
+    pfQuestConfig.saveReload = CreateFrame("Button", nil, pfQuestConfig)
+    pfQuestConfig.saveReload:SetSize(buttonWidth, 28)
+    pfQuestConfig.saveReload:SetPoint("LEFT", pfQuestConfig.save, "RIGHT", 5, 0)
+    pfQuestConfig.saveReload:SetBackdrop({
+      bgFile = "Interface\\Buttons\\WHITE8X8",
+      edgeFile = "Interface\\Buttons\\WHITE8X8",
+      tile = false, tileSize = 1, edgeSize = 1,
+      insets = { left = 0, right = 0, top = 0, bottom = 0 }
+    })
+    pfQuestConfig.saveReload:SetBackdropColor(0.15, 0.1, 0.1, 1)
+    pfQuestConfig.saveReload:SetBackdropBorderColor(0.4, 0.2, 0.2, 1)
+
+    pfQuestConfig.saveReload.text = pfQuestConfig.saveReload:CreateFontString(nil, "OVERLAY")
+    pfQuestConfig.saveReload.text:SetFont(fontPath, fontSize, "OUTLINE")
+    pfQuestConfig.saveReload.text:SetPoint("CENTER", 0, 0)
+    pfQuestConfig.saveReload.text:SetText(L["Save & Reload"])
+
+    pfQuestConfig.saveReload:SetScript("OnClick", ReloadUI)
+    pfQuestConfig.saveReload:SetScript("OnEnter", function()
+      this:SetBackdropColor(0.25, 0.15, 0.15, 1)
+    end)
+    pfQuestConfig.saveReload:SetScript("OnLeave", function()
+      this:SetBackdropColor(0.15, 0.1, 0.1, 1)
+    end)
+  end
+
   -- Update button sizes for new panel width
-  pfQuestConfig.welcome:SetWidth(panelWidth / 2 - 15)
-  pfQuestConfig.save:SetWidth(panelWidth / 2 - 15)
+  local buttonWidth = (panelWidth - 20) / 3 - 3
+  pfQuestConfig.welcome:SetWidth(buttonWidth)
+  pfQuestConfig.save:SetWidth(buttonWidth)
+  pfQuestConfig.saveReload:SetWidth(buttonWidth)
 end
 
 -- ============================================================================
@@ -987,6 +1026,16 @@ local function CreateConfigEntries()
           else
             pfQuest_config[this.config] = "0"
           end
+
+          -- Special handling for minimap button visibility
+          if this.config == "minimapbutton" and pfQuestIcon then
+            if pfQuest_config["minimapbutton"] == "1" then
+              pfQuestIcon:Show()
+            else
+              pfQuestIcon:Hide()
+            end
+          end
+
           pfQuest:ResetAll()
         end)
 
@@ -1288,8 +1337,8 @@ pfQuestConfig:SetScript("OnEvent", function()
       pfQuest_history = {}
     end
 
-    if pfBrowserIcon and pfQuest_config["minimapbutton"] == "0" then
-      pfBrowserIcon:Hide()
+    if pfQuestIcon and pfQuest_config["minimapbutton"] == "0" then
+      pfQuestIcon:Hide()
     end
 
     -- Create the panel structure

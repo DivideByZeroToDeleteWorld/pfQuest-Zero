@@ -78,8 +78,9 @@ end
 local expand_states = {}
 
 -- Quest timer tracking
--- Stores {maxTime, lastUpdate} for each timed quest by questid
-local questTimers = {}
+-- Stores {maxTime, startTime} for each timed quest by questid
+-- Uses pfQuest_timers SavedVariable to persist across reloads
+local questTimers = {}  -- Temporary until SavedVariable loads
 
 -- Format seconds into mm:ss or h:mm:ss
 local function FormatTime(seconds)
@@ -96,10 +97,19 @@ local function FormatTime(seconds)
 end
 
 -- Create a text-based progress bar that empties as time runs out
--- Returns something like: [=========-] 2:34
+-- Returns something like: [=========-] 2:34 / 10:00
 local function FormatTimerBar(remaining, maxTime)
+  local bracketColor = "|cff888888"  -- Gray for [ ] : and /
+  local emptyColor = "|cff555555"    -- Darker gray for empty ---
+  local maxColor = "|cff6699cc"      -- Muted blue for max time
+  local showMax = pfQuest_config["showtimermax"] == "1"
+
   if not remaining or remaining <= 0 then
-    return "|cffff0000[----------] 0:00|r"
+    local maxSuffix = ""
+    if showMax then
+      maxSuffix = bracketColor .. " / " .. maxColor .. FormatTime(maxTime)
+    end
+    return bracketColor .. "[" .. "|cffff0000" .. "----------" .. bracketColor .. "] " .. "|cffff0000" .. "0:00" .. maxSuffix .. "|r"
   end
 
   local barWidth = 10
@@ -108,20 +118,32 @@ local function FormatTimerBar(remaining, maxTime)
   local filled = math.floor(pct * barWidth + 0.5)
   local empty = barWidth - filled
 
-  -- Color based on time remaining percentage
-  local color
+  -- Gradient color based on time remaining percentage (for filled bar and numbers)
+  local fillColor
   if pct > 0.5 then
-    color = "|cff00ff00"  -- Green
+    fillColor = "|cff00ff00"  -- Green
   elseif pct > 0.25 then
-    color = "|cffffff00"  -- Yellow
+    fillColor = "|cffffff00"  -- Yellow
   elseif pct > 0.1 then
-    color = "|cffff8800"  -- Orange
+    fillColor = "|cffff8800"  -- Orange
   else
-    color = "|cffff0000"  -- Red
+    fillColor = "|cffff0000"  -- Red
   end
 
-  local bar = "[" .. string.rep("=", filled) .. string.rep("-", empty) .. "]"
-  return string.format("%s%s %s|r", color, bar, FormatTime(remaining))
+  -- Build bar: [===-------]
+  local bar = bracketColor .. "[" .. fillColor .. string.rep("=", filled) .. emptyColor .. string.rep("-", empty) .. bracketColor .. "]"
+
+  -- Format remaining time with colored numbers
+  local timeStr = FormatTime(remaining)
+  local coloredTime = fillColor .. timeStr
+
+  -- Optionally append max time
+  local maxSuffix = ""
+  if showMax then
+    maxSuffix = bracketColor .. " / " .. maxColor .. FormatTime(maxTime)
+  end
+
+  return bar .. " " .. coloredTime .. maxSuffix .. "|r"
 end
 
 tracker = CreateFrame("Frame", "pfQuestMapTracker", UIParent)
@@ -145,6 +167,10 @@ tracker:SetScript("OnEvent", function()
     end
     return
   end
+
+  -- Initialize quest timer storage (persists across reloads)
+  if not pfQuest_timers then pfQuest_timers = {} end
+  questTimers = pfQuest_timers
 
   -- update font sizes according to config
   fontsize = tonumber(pfQuest_config["trackerfontsize"]) or 12
@@ -292,9 +318,37 @@ tracker:SetScript("OnUpdate", function()
 
   local alpha = this.backdrop:GetAlpha()
   local content = tracker.buttons[1] and not tracker.buttons[1].empty and true or nil
-  local goal = ( content and not MouseIsOver(this) ) and 0 or not content and not MouseIsOver(this) and 0.5 or 1
-  if ceil(alpha*10) ~= ceil(goal*10)then
+  local mouseOver = MouseIsOver(this)
+  local barAlways = pfQuest_config["trackerbaralways"] == "1"
+  local bgAlways = pfQuest_config["trackerbgalways"] == "1"
+
+  -- Determine backdrop alpha goal
+  local goal
+  if barAlways or bgAlways then
+    -- Always show backdrop when either option is enabled
+    goal = 1
+  elseif content and not mouseOver then
+    goal = 0
+  elseif not content and not mouseOver then
+    goal = 0.5
+  else
+    goal = 1
+  end
+
+  -- Animate backdrop alpha
+  if ceil(alpha*10) ~= ceil(goal*10) then
     this.backdrop:SetAlpha(alpha + ((goal - alpha) > 0 and .1 or (goal - alpha) < 0 and -.1 or 0))
+  end
+
+  -- Handle panel (config bar) visibility separately when only BG is always shown
+  if tracker.panel then
+    if barAlways then
+      tracker.panel:SetAlpha(1)
+    elseif bgAlways and not mouseOver then
+      tracker.panel:SetAlpha(0)
+    else
+      tracker.panel:SetAlpha(1)
+    end
   end
 
   if pfQuestCompat.QuestWatchFrame:IsShown() then
@@ -486,7 +540,7 @@ do -- button panel
 
   -- Update icon based on lock state
   local function UpdateLockIcon()
-    if pfQuest_config.lock then
+    if pfQuest_config and pfQuest_config.lock then
       tracker.btnlock.icon:SetTexture(pfQuestConfig.path.."\\img\\lock_2")
       tracker.btnlock.icon:SetVertexColor(.2,1,.8)
     else
@@ -625,10 +679,10 @@ function tracker.ButtonUpdate()
         local maxTime = questTimers[qid] and questTimers[qid].maxTime or timeLeft
 
         local timerText = FormatTimerBar(timeLeft, maxTime)
-        this.objectives[this.timerIndex]:SetText("|cffcccccc\226\143\179|r " .. timerText)
+        this.objectives[this.timerIndex]:SetText("|cffcccccc[T]|r " .. timerText)
       elseif this.questTimerActive then
         -- Timer just expired - show FAILED state and stop updating
-        this.objectives[this.timerIndex]:SetText("|cffcccccc\226\143\179|r |cffff0000FAILED|r")
+        this.objectives[this.timerIndex]:SetText("|cffff0000[T] FAILED|r")
         this.questTimerActive = nil
       end
     end
@@ -765,6 +819,13 @@ function tracker.ButtonEvent(self)
 
     local expanded = expand_states[title] == 1 and true or nil
 
+    -- Check for quest timer FIRST so we can use it in percent calculation and title coloring
+    SelectQuestLogEntry(qlogid)
+    local timeLeft = GetQuestLogTimeLeft and GetQuestLogTimeLeft() or nil
+    local hasActiveTimer = timeLeft and timeLeft > 0
+    local hasExpiredTimer = questTimers[qid] and (not timeLeft or timeLeft <= 0)
+    local isTimedQuest = hasActiveTimer or hasExpiredTimer or questTimers[qid]
+
     if objectives and objectives > 0 then
       for i=1, objectives, 1 do
         local text, _, done = GetQuestLogLeaderBoard(i, qlogid)
@@ -772,17 +833,31 @@ function tracker.ButtonEvent(self)
         if objNum and objNeeded then
           max = max + objNeeded
           cur = cur + objNum
-        elseif not done then
+        elseif done then
+          -- Objective is done but has no numeric format - count as 1/1
+          max = max + 1
+          cur = cur + 1
+        else
           max = max + 1
         end
       end
     end
 
-    if cur == max or complete then
+    -- Calculate percentage - for timed quests, ignore the 'complete' flag and use actual progress
+    if hasExpiredTimer then
+      -- Timer expired = FAILED, don't show as 100%
+      if max > 0 then
+        percent = cur/max*100
+      else
+        percent = 0
+      end
+    elseif (cur == max and max > 0) or (complete and not isTimedQuest) then
       cur, max = 1, 1
       percent = 100
-    else
+    elseif max > 0 then
       percent = cur/max*100
+    else
+      percent = 0  -- No objectives yet
     end
 
     -- Set the title text FIRST so we can calculate its height
@@ -790,10 +865,19 @@ function tracker.ButtonEvent(self)
     local colorperc = string.format("|cff%02x%02x%02x", r*255, g*255, b*255)
     local showlevel = pfQuest_config["trackerlevel"] == "1" and "[" .. ( level or "??" ) .. ( tag and "+" or "") .. "] " or ""
 
+    -- Override colors if timer has expired (FAILED state)
+    if hasExpiredTimer then
+      colorperc = "|cffff0000"  -- Red for percentage
+    end
+
     self.tracked = watched
     self.perc = percent
     self.text:SetText(string.format("%s%s |cffaaaaaa(%s%s%%|cffaaaaaa)|r", showlevel, title or "", colorperc or "", ceil(percent)))
-    self.text:SetTextColor(color.r, color.g, color.b)
+    if hasExpiredTimer then
+      self.text:SetTextColor(1, 0, 0)  -- Red title when timer failed
+    else
+      self.text:SetTextColor(color.r, color.g, color.b)
+    end
     self.tooltip = pfQuest_Loc["|cff33ffcc<Click>|r Unfold/Fold Objectives\n|cff33ffcc<Right-Click>|r Show In QuestLog\n|cff33ffcc<Ctrl-Click>|r Show Map / Toggle Color\n|cff33ffcc<Shift-Click>|r Hide Nodes"]
 
     -- Initialize objectives table if it doesn't exist
@@ -857,12 +941,8 @@ function tracker.ButtonEvent(self)
       end
     end
 
-    -- Check for quest timer and display if present
-    -- Must select the quest first since GetQuestLogTimeLeft returns time for selected quest
-    SelectQuestLogEntry(qlogid)
-    local timeLeft = GetQuestLogTimeLeft and GetQuestLogTimeLeft() or nil
-
     -- Store quest timer info (always track, even when collapsed, so we don't lose max time)
+    -- timeLeft was already retrieved earlier for title coloring
     if timeLeft and timeLeft > 0 then
       if not questTimers[qid] then
         questTimers[qid] = { maxTime = timeLeft, startTime = GetTime() }
@@ -875,11 +955,16 @@ function tracker.ButtonEvent(self)
       end
     end
 
-    -- Display timer bar only if expanded or quest is in progress (same logic as objectives)
-    -- Also show if we HAD a timer that's now expired (to show FAILED state)
-    local hasActiveTimer = timeLeft and timeLeft > 0
-    local hasExpiredTimer = questTimers[qid] and (not timeLeft or timeLeft <= 0)
-    local showTimer = (hasActiveTimer or hasExpiredTimer) and (expanded or (percent > 0 and percent < 100))
+    -- Display timer bar - optionally collapse with objectives
+    local hasTimer = hasActiveTimer or hasExpiredTimer
+    local showTimer
+    if pfQuest_config["collapsetimer"] == "1" then
+      -- Collapse with objectives: show if expanded OR quest in progress
+      showTimer = hasTimer and (expanded or (percent > 0 and percent < 100))
+    else
+      -- Always show timer if active/expired (don't collapse)
+      showTimer = hasTimer
+    end
 
     if showTimer then
       local maxTime = questTimers[qid].maxTime
@@ -909,17 +994,17 @@ function tracker.ButtonEvent(self)
         self.objectives[timerIndex]:SetPoint("TOPLEFT", self, "TOPLEFT", 20, firstObjOffset)
       end
 
-      -- Format and display timer with hourglass prefix to make it obvious
+      -- Format and display timer
       local timerText
       if hasExpiredTimer then
-        -- Timer expired - show FAILED in red
-        timerText = "|cffff0000FAILED|r"
+        -- Timer expired - show FAILED in red (including [T])
+        timerText = "|cffff0000[T] FAILED|r"
         self.questTimerActive = nil  -- Stop updating
       else
-        timerText = FormatTimerBar(timeLeft, maxTime)
+        timerText = "|cffcccccc[T]|r " .. FormatTimerBar(timeLeft, maxTime)
         self.questTimerActive = true  -- Keep updating
       end
-      self.objectives[timerIndex]:SetText("|cffcccccc\226\143\179|r " .. timerText)  -- ⏳ hourglass emoji
+      self.objectives[timerIndex]:SetText(timerText)
       self.objectives[timerIndex]:SetTextColor(1, 1, 1)
       self.objectives[timerIndex]:Show()
 

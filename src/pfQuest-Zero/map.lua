@@ -936,11 +936,15 @@ function pfMap:UpdateNodes()
     subzoneBounds = pfMap:GetSubzoneBounds(mapInfo)
   end
 
-  -- reset tracker
-  pfQuest.tracker.Reset()
+  -- reset tracker (check if initialized)
+  if pfQuest.tracker and pfQuest.tracker.Reset then
+    pfQuest.tracker.Reset()
+  end
 
-  -- reset route
-  pfQuest.route:Reset()
+  -- reset route (check if initialized)
+  if pfQuest.route and pfQuest.route.Reset then
+    pfQuest.route:Reset()
+  end
 
   -- refresh all nodes
   for addon, _ in pairs(pfMap.nodes) do
