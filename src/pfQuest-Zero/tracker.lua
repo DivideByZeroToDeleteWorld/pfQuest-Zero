@@ -870,6 +870,11 @@ function tracker.ButtonEvent(self)
       colorperc = "|cffff0000"  -- Red for percentage
     end
 
+    -- Set explicit width on title for proper word wrapping
+    local trackerWidth = tonumber(pfQuest_config["trackerwidth"]) or 300
+    local titleWidth = trackerWidth - 26  -- 16px left padding + 10px right padding
+    self.text:SetWidth(titleWidth)
+
     self.tracked = watched
     self.perc = percent
     self.text:SetText(string.format("%s%s |cffaaaaaa(%s%s%%|cffaaaaaa)|r", showlevel, title or "", colorperc or "", ceil(percent)))
@@ -879,6 +884,9 @@ function tracker.ButtonEvent(self)
       self.text:SetTextColor(color.r, color.g, color.b)
     end
     self.tooltip = pfQuest_Loc["|cff33ffcc<Click>|r Unfold/Fold Objectives\n|cff33ffcc<Right-Click>|r Show In QuestLog\n|cff33ffcc<Ctrl-Click>|r Show Map / Toggle Color\n|cff33ffcc<Shift-Click>|r Hide Nodes"]
+
+    -- Get actual title height after text is set (for wrapped titles)
+    local titleHeight = self.text:GetHeight()
 
     -- Initialize objectives table if it doesn't exist
     if not self.objectives then
@@ -914,8 +922,8 @@ function tracker.ButtonEvent(self)
         -- Position the objective
         self.objectives[i]:ClearAllPoints()
         if i == 1 then
-          -- First objective anchors below the title (3px below title text)
-          local firstObjOffset = -(fontsize + 3)
+          -- First objective anchors below the title (use actual title height + padding)
+          local firstObjOffset = -(titleHeight + 3)
           self.objectives[i]:SetPoint("TOPLEFT", self, "TOPLEFT", 20, firstObjOffset)
         else
           -- Subsequent objectives anchor to bottom of previous objective
@@ -990,7 +998,7 @@ function tracker.ButtonEvent(self)
       if visibleObjectives > 0 then
         self.objectives[timerIndex]:SetPoint("TOPLEFT", self.objectives[visibleObjectives], "BOTTOMLEFT", 0, -4)
       else
-        local firstObjOffset = -(fontsize + 3)
+        local firstObjOffset = -(titleHeight + 3)
         self.objectives[timerIndex]:SetPoint("TOPLEFT", self, "TOPLEFT", 20, firstObjOffset)
       end
 
@@ -1042,12 +1050,12 @@ function tracker.ButtonEvent(self)
     local actualHeight
     if objectivesHeight > 0 then
       -- Expanded: title area + objectives + bottom padding for separation from next button
-      local titleArea = fontsize + 3  -- Matches first objective offset
+      local titleArea = titleHeight + 3  -- Use actual title height + padding
       local bottomPadding = 3
       actualHeight = titleArea + objectivesHeight + bottomPadding
     else
-      -- Collapsed: just the title row
-      actualHeight = titlerowheight
+      -- Collapsed: just the title row (use actual wrapped title height + padding)
+      actualHeight = titleHeight + 5
     end
 
     self:SetHeight(actualHeight)
@@ -1065,22 +1073,34 @@ function tracker.ButtonEvent(self)
       level, color = 0, { r = .2, g = .8, b = 1 }
     end
 
+    -- Set explicit width on title for proper word wrapping
+    local trackerWidth = tonumber(pfQuest_config["trackerwidth"]) or 300
+    local titleWidth = trackerWidth - 26  -- 16px left padding + 10px right padding
+    self.text:SetWidth(titleWidth)
+
     local showlevel = pfQuest_config["trackerlevel"] == "1" and "[" .. ( level or "??" ) .. "] " or ""
     self.text:SetTextColor(color.r, color.g, color.b)
     self.text:SetText(showlevel .. title)
     self.level = tonumber(level)
     self.tooltip = pfQuest_Loc["|cff33ffcc<Ctrl-Click>|r Show Map / Toggle Color\n|cff33ffcc<Shift-Click>|r Mark As Done"]
 
-    -- Fixed height for giver tracking - uses titlerowheight
-    self:SetHeight(titlerowheight)
+    -- Use actual wrapped title height + padding
+    local titleHeight = self.text:GetHeight()
+    self:SetHeight(titleHeight + 5)
   elseif tracker.mode == "DATABASE_TRACKING" then
+    -- Set explicit width on title for proper word wrapping
+    local trackerWidth = tonumber(pfQuest_config["trackerwidth"]) or 300
+    local titleWidth = trackerWidth - 26  -- 16px left padding + 10px right padding
+    self.text:SetWidth(titleWidth)
+
     self.text:SetText(title)
     self.text:SetTextColor(1,1,1,1)
     self.text:SetTextColor(pfMap.str2rgb(title))
     self.tooltip = pfQuest_Loc["|cff33ffcc<Ctrl-Click>|r Show Map / Toggle Color\n|cff33ffcc<Shift-Click>|r Hide Nodes"]
 
-    -- Fixed height for database tracking - uses titlerowheight
-    self:SetHeight(titlerowheight)
+    -- Use actual wrapped title height + padding
+    local titleHeight = self.text:GetHeight()
+    self:SetHeight(titleHeight + 5)
   elseif tracker.mode == "PERK_TRACKING" then
     local perkData = node.perkData
     if not perkData then return end
@@ -1112,6 +1132,11 @@ function tracker.ButtonEvent(self)
     local r, g, b = pfMap.tooltip:GetColor(cur, max > 0 and max or 1)
     local colorperc = string.format("|cff%02x%02x%02x", r*255, g*255, b*255)
 
+    -- Set explicit width on title for proper word wrapping
+    local trackerWidth = tonumber(pfQuest_config["trackerwidth"]) or 300
+    local titleWidth = trackerWidth - 26  -- 16px left padding + 10px right padding
+    self.text:SetWidth(titleWidth)
+
     self.tracked = true
     self.perc = percent
 
@@ -1126,6 +1151,9 @@ function tracker.ButtonEvent(self)
     self.text:SetText(string.format("%s%s |cffaaaaaa(%s%s%%|cffaaaaaa)|r", perkData.perkNameColored or title, rankText, colorperc, ceil(percent)))
     self.text:SetTextColor(1, 1, 1)
     self.tooltip = pfQuest_Loc["Perk Task"] or "|cff33ffcc<Click>|r Unfold/Fold Task"
+
+    -- Get actual title height after text is set (for wrapped titles)
+    local titleHeight = self.text:GetHeight()
 
     -- Initialize objectives table if needed
     if not self.objectives then
@@ -1147,14 +1175,13 @@ function tracker.ButtonEvent(self)
       end
 
       -- Calculate available width for objectives (button width minus padding)
-      local trackerWidth = tonumber(pfQuest_config["trackerwidth"]) or 300
       local objectiveWidth = trackerWidth - 30  -- 20px left padding + 10px right padding
 
       -- Explicitly set width to force proper text wrapping
       self.objectives[1]:SetWidth(objectiveWidth)
 
-      -- Position the objective (3px below title text, matching quests)
-      local firstObjOffset = -(fontsize + 3)
+      -- Position the objective (below title using actual title height)
+      local firstObjOffset = -(titleHeight + 3)
       self.objectives[1]:ClearAllPoints()
       self.objectives[1]:SetPoint("TOPLEFT", self, "TOPLEFT", 20, firstObjOffset)
 
@@ -1214,12 +1241,12 @@ function tracker.ButtonEvent(self)
     local actualHeight
     if objectivesHeight > 0 then
       -- Expanded: title area + objectives + bottom padding for separation from next button
-      local titleArea = fontsize + 3  -- Matches first objective offset
+      local titleArea = titleHeight + 3  -- Use actual title height + padding
       local bottomPadding = 3
       actualHeight = titleArea + objectivesHeight + bottomPadding
     else
-      -- Collapsed: just the title row
-      actualHeight = titlerowheight
+      -- Collapsed: just the title row (use actual wrapped title height + padding)
+      actualHeight = titleHeight + 5
     end
 
     self:SetHeight(actualHeight)
@@ -1249,6 +1276,11 @@ function tracker.ButtonEvent(self)
     local r, g, b = pfMap.tooltip:GetColor(totalCompleted, numCriteria > 0 and numCriteria or 1)
     local colorperc = string.format("|cff%02x%02x%02x", r*255, g*255, b*255)
 
+    -- Set explicit width on title for proper word wrapping
+    local trackerWidth = tonumber(pfQuest_config["trackerwidth"]) or 300
+    local titleWidth = trackerWidth - 26  -- 16px left padding + 10px right padding
+    self.text:SetWidth(titleWidth)
+
     -- Color the achievement name yellow (achievement color)
     local achievementColor = achievementData.completed and "|cff00ff00" or "|cffffff00"
 
@@ -1264,6 +1296,9 @@ function tracker.ButtonEvent(self)
     self.text:SetTextColor(1, 1, 1)
     self.tooltip = "|cff33ffcc<Click>|r Expand/Collapse\n|cff33ffcc<Shift-Click>|r Open Achievement Panel"
 
+    -- Get actual title height after text is set (for wrapped titles)
+    local titleHeight = self.text:GetHeight()
+
     -- Initialize objectives table if needed
     if not self.objectives then
       self.objectives = {}
@@ -1275,7 +1310,6 @@ function tracker.ButtonEvent(self)
     -- Show criteria as objectives if expanded or in progress
     local criteria = achievementData.criteria or {}
     if (expanded or (percent > 0 and percent < 100)) and table.getn(criteria) > 0 then
-      local trackerWidth = tonumber(pfQuest_config["trackerwidth"]) or 300
       local objectiveWidth = trackerWidth - 30
 
       for i, criterion in ipairs(criteria) do
@@ -1290,12 +1324,12 @@ function tracker.ButtonEvent(self)
 
         self.objectives[i]:SetWidth(objectiveWidth)
 
-        -- Position the objective
-        local objOffset = -(fontsize + 3)
+        -- Position the objective (first uses title height, rest chain)
         if i > 1 then
           self.objectives[i]:ClearAllPoints()
           self.objectives[i]:SetPoint("TOPLEFT", self.objectives[i-1], "BOTTOMLEFT", 0, -2)
         else
+          local objOffset = -(titleHeight + 3)
           self.objectives[i]:ClearAllPoints()
           self.objectives[i]:SetPoint("TOPLEFT", self, "TOPLEFT", 20, objOffset)
         end
@@ -1341,11 +1375,12 @@ function tracker.ButtonEvent(self)
     -- Calculate total height
     local actualHeight
     if objectivesHeight > 0 then
-      local titleArea = fontsize + 3
+      local titleArea = titleHeight + 3  -- Use actual title height + padding
       local bottomPadding = 3
       actualHeight = titleArea + objectivesHeight + bottomPadding
     else
-      actualHeight = titlerowheight
+      -- Collapsed: just the title row (use actual wrapped title height + padding)
+      actualHeight = titleHeight + 5
     end
 
     self:SetHeight(actualHeight)
