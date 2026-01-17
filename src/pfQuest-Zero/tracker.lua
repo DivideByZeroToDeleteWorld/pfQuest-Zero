@@ -5,6 +5,9 @@ local fontsize = 12
 local panelheight = 16
 local entryheight = 20
 
+-- Bullet font path (Source Code Pro Bold for special characters)
+local bulletFontPath = "Interface\\AddOns\\pfQuest-Zero\\compat\\fonts\\SourceCodePro-Bold.ttf"
+
 -- Helper function to get gradient color from red (rank 0) to green (rank 10)
 local function GetRankColor(rank)
   rank = tonumber(rank) or 0
@@ -26,6 +29,59 @@ local function GetRankColor(rank)
   end
 
   return string.format("|cff%02x%02x%02x", r * 255, g * 255, b * 255)
+end
+
+-- Helper function to parse color config string "r,g,b,a" to hex color code
+local function GetRepColorHex(configKey, defaultColor)
+  local colorStr = pfQuest_config[configKey] or defaultColor
+  if not colorStr then return "|cffffffff" end
+  local r, g, b = strsplit(",", colorStr)
+  r = tonumber(r) or 1
+  g = tonumber(g) or 1
+  b = tonumber(b) or 1
+  return string.format("|cff%02x%02x%02x", r * 255, g * 255, b * 255)
+end
+
+-- Reputation level color mapping
+local function GetRepLevelColor(level)
+  local levelLower = string.lower(level or "")
+  if levelLower == "hated" then
+    return GetRepColorHex("rephatedcolor", "0.5,0,0,1")
+  elseif levelLower == "hostile" then
+    return GetRepColorHex("rephostilecolor", "0.8,0,0,1")
+  elseif levelLower == "unfriendly" then
+    return GetRepColorHex("repunfriendlycolor", "0.9,0.4,0,1")
+  elseif levelLower == "neutral" then
+    return GetRepColorHex("repneutralcolor", "1,1,0,1")
+  elseif levelLower == "friendly" then
+    return GetRepColorHex("repfriendlycolor", "0.4,0.9,0.2,1")
+  elseif levelLower == "honored" then
+    return GetRepColorHex("rephonoredcolor", "0.2,0.8,0.5,1")
+  elseif levelLower == "revered" then
+    return GetRepColorHex("repreveredcolor", "0.3,0.6,1,1")
+  elseif levelLower == "exalted" then
+    return GetRepColorHex("repexaltedcolor", "0.8,0.5,1,1")
+  else
+    return "|cffffffff"  -- White for unknown
+  end
+end
+
+-- Format reputation objective text with colors
+-- Format: "Faction Name: Required Level / Current Level"
+local function FormatReputationText(text)
+  -- Match pattern: "Faction: Level1 / Level2"
+  local faction, reqLevel, curLevel = string.match(text, "^(.+):%s*(%w+)%s*/%s*(%w+)$")
+
+  if faction and reqLevel and curLevel then
+    local factionColor = GetRepColorHex("repfactioncolor", "0.4,0.8,1,1")
+    local reqColor = GetRepLevelColor(reqLevel)
+    local curColor = GetRepLevelColor(curLevel)
+
+    return string.format("%s%s|r: %s%s|r |cffffffff/|r %s%s|r",
+      factionColor, faction, reqColor, reqLevel, curColor, curLevel)
+  end
+
+  return nil  -- Not a reputation objective
 end
 
 local function HideTooltip()
@@ -225,6 +281,15 @@ tracker:SetScript("OnEvent", function()
         button.text:SetFont(GetTrackerFont(), fontsize, GetTrackerFontStyle())
       end
 
+      -- update bullet fonts (use Source Code Pro Bold for special characters)
+      if button.objectiveBullets then
+        for i, bullet in pairs(button.objectiveBullets) do
+          if bullet then
+            bullet:SetFont(bulletFontPath, fontsize, GetTrackerFontStyle())
+          end
+        end
+      end
+
       -- update objective fonts for this button
       if button.objectives then
         for i, obj in pairs(button.objectives) do
@@ -283,6 +348,11 @@ tracker:SetScript("OnEvent", function()
       end
     end)
   end
+
+  -- Apply tracker colors from config
+  if _G.UpdateTrackerColors then
+    _G.UpdateTrackerColors()
+  end
 end)
 
 tracker:SetScript("OnMouseDown",function()
@@ -316,38 +386,45 @@ tracker:SetScript("OnUpdate", function()
     this.strata = "MEDIUM"
   end
 
-  local alpha = this.backdrop:GetAlpha()
+  local backdropAlpha = this.backdrop:GetAlpha()
   local content = tracker.buttons[1] and not tracker.buttons[1].empty and true or nil
   local mouseOver = MouseIsOver(this)
   local barAlways = pfQuest_config["trackerbaralways"] == "1"
   local bgAlways = pfQuest_config["trackerbgalways"] == "1"
 
-  -- Determine backdrop alpha goal
-  local goal
-  if barAlways or bgAlways then
-    -- Always show backdrop when either option is enabled
-    goal = 1
+  -- Determine backdrop alpha goal (controlled by bgAlways)
+  local backdropGoal
+  if bgAlways then
+    backdropGoal = 1
   elseif content and not mouseOver then
-    goal = 0
+    backdropGoal = 0
   elseif not content and not mouseOver then
-    goal = 0.5
+    backdropGoal = 0.5
   else
-    goal = 1
+    backdropGoal = 1
   end
 
   -- Animate backdrop alpha
-  if ceil(alpha*10) ~= ceil(goal*10) then
-    this.backdrop:SetAlpha(alpha + ((goal - alpha) > 0 and .1 or (goal - alpha) < 0 and -.1 or 0))
+  if ceil(backdropAlpha*10) ~= ceil(backdropGoal*10) then
+    this.backdrop:SetAlpha(backdropAlpha + ((backdropGoal - backdropAlpha) > 0 and .1 or (backdropGoal - backdropAlpha) < 0 and -.1 or 0))
   end
 
-  -- Handle panel (config bar) visibility separately when only BG is always shown
+  -- Handle panel (config bar) visibility separately (controlled by barAlways)
   if tracker.panel then
+    local panelGoal
     if barAlways then
-      tracker.panel:SetAlpha(1)
-    elseif bgAlways and not mouseOver then
-      tracker.panel:SetAlpha(0)
+      panelGoal = 1
+    elseif content and not mouseOver then
+      panelGoal = 0
+    elseif not content and not mouseOver then
+      panelGoal = 0.5
     else
-      tracker.panel:SetAlpha(1)
+      panelGoal = 1
+    end
+
+    local panelAlpha = tracker.panel:GetAlpha()
+    if ceil(panelAlpha*10) ~= ceil(panelGoal*10) then
+      tracker.panel:SetAlpha(panelAlpha + ((panelGoal - panelAlpha) > 0 and .1 or (panelGoal - panelAlpha) < 0 and -.1 or 0))
     end
   end
 
@@ -375,15 +452,107 @@ tracker.mode = "QUEST_TRACKING"
 
 tracker.backdrop = CreateFrame("Frame", nil, tracker)
 tracker.backdrop:SetAllPoints(tracker)
-tracker.backdrop.bg = tracker.backdrop:CreateTexture(nil, "BACKGROUND")
-tracker.backdrop.bg:SetTexture(0,0,0,.2)
-tracker.backdrop.bg:SetAllPoints()
+tracker.backdrop:SetBackdrop({
+  bgFile = "Interface\\Buttons\\WHITE8X8",
+  edgeFile = "Interface\\Buttons\\WHITE8X8",
+  tile = false, tileSize = 1, edgeSize = 2,
+  insets = { left = 1, right = 1, top = 1, bottom = 1 }
+})
+tracker.backdrop:SetBackdropColor(0, 0, 0, 0.2)
+tracker.backdrop:SetBackdropBorderColor(0.3, 0.3, 0.3, 0)
+
+-- Helper to parse color from config string "r,g,b,a"
+local function ParseTrackerColor(colorStr)
+  if not colorStr then return 0, 0, 0, 1 end
+  local r, g, b, a = strsplit(",", colorStr)
+  return tonumber(r) or 0, tonumber(g) or 0, tonumber(b) or 0, tonumber(a) or 1
+end
+
+-- Helper to get border texture path from config
+local function GetTrackerBorderPath(borderName)
+  if not borderName or borderName == "None" then
+    return nil
+  end
+
+  -- Try to get from LibSharedMedia
+  if LibStub and LibStub:GetLibrary("LibSharedMedia-3.0", true) then
+    local LSM = LibStub:GetLibrary("LibSharedMedia-3.0")
+    local path = LSM:Fetch("border", borderName, true)
+    if path then return path end
+  end
+
+  -- Fallback for "Solid"
+  if borderName == "Solid" then
+    return "Interface\\Buttons\\WHITE8X8"
+  end
+
+  return nil
+end
+
+-- Global function to update tracker colors from config
+_G.UpdateTrackerColors = function()
+  if not pfQuest_config then return end
+
+  -- Get border settings
+  local borderTexture = pfQuest_config["trackerbordertexture"] or "None"
+  local borderWidth = tonumber(pfQuest_config["trackerborderwidth"]) or 2
+  local borderPath = GetTrackerBorderPath(borderTexture)
+  local hasBorder = borderPath ~= nil
+
+  -- Update backdrop with new border settings
+  local insetSize = hasBorder and math.max(1, math.floor(borderWidth / 2)) or 0
+  tracker.backdrop:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    edgeFile = borderPath,
+    tile = false, tileSize = 1, edgeSize = borderWidth,
+    insets = { left = insetSize, right = insetSize, top = insetSize, bottom = insetSize }
+  })
+
+  -- Update backdrop color
+  local bgR, bgG, bgB, bgA = ParseTrackerColor(pfQuest_config["trackerbgcolor"] or "0,0,0,0.2")
+  tracker.backdrop:SetBackdropColor(bgR, bgG, bgB, bgA)
+
+  -- Update border color
+  local borderR, borderG, borderB, borderA = ParseTrackerColor(pfQuest_config["trackerbordercolor"] or "0.3,0.3,0.3,1")
+  if hasBorder then
+    tracker.backdrop:SetBackdropBorderColor(borderR, borderG, borderB, borderA)
+  else
+    tracker.backdrop:SetBackdropBorderColor(0, 0, 0, 0)
+  end
+
+  -- Update panel positioning based on border width
+  if tracker.panel then
+    local offset = hasBorder and borderWidth or 0
+    tracker.panel:ClearAllPoints()
+    tracker.panel:SetPoint("TOPLEFT", offset, -offset)
+    tracker.panel:SetPoint("TOPRIGHT", -offset, -offset)
+  end
+
+  -- Update scrollframe positioning based on border width
+  if tracker.scrollframe then
+    local offset = hasBorder and borderWidth or 0
+    tracker.scrollframe:ClearAllPoints()
+    tracker.scrollframe:SetPoint("TOPLEFT", tracker.panel, "BOTTOMLEFT", 0, 0)
+    tracker.scrollframe:SetPoint("BOTTOMRIGHT", tracker, "BOTTOMRIGHT", -offset, offset)
+  end
+
+  -- Update panel color
+  if tracker.panel and tracker.panel.bg then
+    local panelR, panelG, panelB, panelA = ParseTrackerColor(pfQuest_config["trackerpanelcolor"] or "0,0,0,0.5")
+    tracker.panel.bg:SetTexture(panelR, panelG, panelB, panelA)
+  end
+end
 
 do -- button panel
   tracker.panel = CreateFrame("Frame", nil, tracker.backdrop)
   tracker.panel:SetPoint("TOPLEFT", 0, 0)
   tracker.panel:SetPoint("TOPRIGHT", 0, 0)
   tracker.panel:SetHeight(panelheight)
+
+  -- Panel background
+  tracker.panel.bg = tracker.panel:CreateTexture(nil, "BACKGROUND")
+  tracker.panel.bg:SetTexture(0, 0, 0, 0.5)
+  tracker.panel.bg:SetAllPoints()
 
   local anchors = {}
   local buttons = {}
@@ -700,9 +869,10 @@ function tracker.ButtonClick()
         break
       end
     end
-  elseif IsShiftKeyDown() then
-    -- Handle achievement mode - open achievement panel
-    if tracker.mode == "ACHIEVEMENT_TRACKING" and this.node and this.node.achievementData then
+  elseif arg1 == "MiddleButton" then
+    -- Middle-click to hide nodes (changed from shift-click for server compatibility)
+    -- Handle achievement mode - open achievement panel with shift-click instead
+    if tracker.mode == "ACHIEVEMENT_TRACKING" and this.node and this.node.achievementData and IsShiftKeyDown() then
       if AchievementFrame_LoadUI then AchievementFrame_LoadUI() end
       if AchievementFrame and AchievementFrame:IsShown() then
         AchievementFrame:Hide()
@@ -726,6 +896,17 @@ function tracker.ButtonClick()
     pfMap:UpdateNodes()
 
     pfQuest.updateQuestGivers = true
+  elseif IsShiftKeyDown() and tracker.mode == "ACHIEVEMENT_TRACKING" and this.node and this.node.achievementData then
+    -- Shift-click opens achievement panel (kept for achievements only)
+    if AchievementFrame_LoadUI then AchievementFrame_LoadUI() end
+    if AchievementFrame and AchievementFrame:IsShown() then
+      AchievementFrame:Hide()
+    else
+      ShowUIPanel(AchievementFrame)
+      if AchievementFrame_SelectAchievement and this.node.achievementData.achievementID then
+        AchievementFrame_SelectAchievement(this.node.achievementData.achievementID)
+      end
+    end
   elseif IsControlKeyDown() and not WorldMapFrame:IsShown() then
     -- show world map
     if ToggleWorldMap then
@@ -812,12 +993,10 @@ function tracker.ButtonEvent(self)
     local cur,max = 0,0
     local percent = 0
 
-    -- write expand state
-    if not expand_states[title] then
+    -- write expand state (initial default only)
+    if expand_states[title] == nil then
       expand_states[title] = pfQuest_config["trackerexpand"] == "1" and 1 or 0
     end
-
-    local expanded = expand_states[title] == 1 and true or nil
 
     -- Check for quest timer FIRST so we can use it in percent calculation and title coloring
     SelectQuestLogEntry(qlogid)
@@ -860,6 +1039,19 @@ function tracker.ButtonEvent(self)
       percent = 0  -- No objectives yet
     end
 
+    -- Auto-fold completed quests if option is enabled
+    if percent >= 100 and pfQuest_config["foldcomplete"] == "1" then
+      expand_states[title] = 0
+    end
+
+    -- Auto-unfold incomplete quests if option is enabled
+    if percent < 100 and pfQuest_config["unfoldincomplete"] == "1" then
+      expand_states[title] = 1
+    end
+
+    -- Determine expanded state for display
+    local expanded = expand_states[title] == 1 and true or nil
+
     -- Set the title text FIRST so we can calculate its height
     local r,g,b = pfMap.tooltip:GetColor(cur, max)
     local colorperc = string.format("|cff%02x%02x%02x", r*255, g*255, b*255)
@@ -870,10 +1062,12 @@ function tracker.ButtonEvent(self)
       colorperc = "|cffff0000"  -- Red for percentage
     end
 
-    -- Set explicit width on title for proper word wrapping
+    -- Set explicit width on title for proper word wrapping/truncation
     local trackerWidth = tonumber(pfQuest_config["trackerwidth"]) or 300
     local titleWidth = trackerWidth - 26  -- 16px left padding + 10px right padding
+    local truncateText = pfQuest_config["trackertruncate"] == "1"
     self.text:SetWidth(titleWidth)
+    self.text:SetWordWrap(not truncateText)
 
     self.tracked = watched
     self.perc = percent
@@ -883,7 +1077,7 @@ function tracker.ButtonEvent(self)
     else
       self.text:SetTextColor(color.r, color.g, color.b)
     end
-    self.tooltip = pfQuest_Loc["|cff33ffcc<Click>|r Unfold/Fold Objectives\n|cff33ffcc<Right-Click>|r Show In QuestLog\n|cff33ffcc<Ctrl-Click>|r Show Map / Toggle Color\n|cff33ffcc<Shift-Click>|r Hide Nodes"]
+    self.tooltip = pfQuest_Loc["|cff33ffcc<Click>|r Unfold/Fold Objectives\n|cff33ffcc<Right-Click>|r Show In QuestLog\n|cff33ffcc<Ctrl-Click>|r Show Map / Toggle Color\n|cff33ffcc<Middle-Click>|r Hide Nodes"]
 
     -- Get actual title height after text is set (for wrapped titles)
     local titleHeight = self.text:GetHeight()
@@ -897,49 +1091,111 @@ function tracker.ButtonEvent(self)
     local objectivesHeight = 0
     local visibleObjectives = 0
 
+    -- Initialize bullet storage
+    self.objectiveBullets = self.objectiveBullets or {}
+    for bid, bullet in pairs(self.objectiveBullets) do bullet:Hide() end
+
     -- Position objectives using anchor chains for proper wrapping
     if objectives and (expanded or ( percent > 0 and percent < 100 )) then
       for i=1, objectives, 1 do
         local text, _, done = GetQuestLogLeaderBoard(i, qlogid)
         local _, _, obj, objNum, objNeeded = strfind(gsub(text, "\239\188\154", ":"), "(.*):%s*([%d]+)%s*/%s*([%d]+)")
 
+        -- Create bullet FontString using Source Code Pro Bold for special characters
+        if not self.objectiveBullets[i] then
+          self.objectiveBullets[i] = self:CreateFontString(nil, "HIGH", "GameFontNormal")
+          self.objectiveBullets[i]:SetFont(bulletFontPath, fontsize, _G.GetTrackerFontStyle())
+          self.objectiveBullets[i]:SetJustifyH("LEFT")
+          self.objectiveBullets[i]:SetJustifyV("TOP")
+        end
+
+        -- Create objective text FontString using regular tracker font
         if not self.objectives[i] then
           self.objectives[i] = self:CreateFontString(nil, "HIGH", "GameFontNormal")
           self.objectives[i]:SetFont(_G.GetTrackerFont(), fontsize, _G.GetTrackerFontStyle())
           self.objectives[i]:SetJustifyH("LEFT")
-          self.objectives[i]:SetJustifyV("TOP")  -- Top-align text to prevent gaps
-          self.objectives[i]:SetWordWrap(true)
-          self.objectives[i]:SetNonSpaceWrap(true)  -- Allow wrapping on any character if needed
+          self.objectives[i]:SetJustifyV("TOP")
         end
 
-        -- Calculate available width for objectives (button width minus padding)
-        local trackerWidth = tonumber(pfQuest_config["trackerwidth"]) or 300
-        local objectiveWidth = trackerWidth - 30  -- 20px left padding + 10px right padding
+        -- Set word wrap based on config (must be set each time, not just at creation)
+        self.objectives[i]:SetWordWrap(not truncateText)
+        self.objectives[i]:SetNonSpaceWrap(not truncateText)
 
-        -- Explicitly set width to force proper text wrapping
+        -- Get bullet character from config
+        local bullet = pfQuest_config["objectivebullet"] or "-"
+        local showBullet = bullet ~= "None" and bullet ~= ""
+
+        -- Calculate available width for objectives (button width minus padding minus bullet width if shown)
+        local trackerWidth = tonumber(pfQuest_config["trackerwidth"]) or 300
+        local bulletWidth = showBullet and 12 or 0  -- Fixed width for bullet character, 0 if hidden
+        local objectiveWidth = trackerWidth - 30 - bulletWidth  -- 20px left padding + 10px right padding + bullet
+
+        -- Set bullet text if shown
+        if showBullet then
+          self.objectiveBullets[i]:SetText(bullet)
+          self.objectiveBullets[i]:SetTextColor(1, 1, 1)
+          self.objectiveBullets[i]:SetFont(bulletFontPath, fontsize, _G.GetTrackerFontStyle())
+        end
+
+        -- Explicitly set width for text wrapping
         self.objectives[i]:SetWidth(objectiveWidth)
 
-        -- Position the objective
-        self.objectives[i]:ClearAllPoints()
-        if i == 1 then
-          -- First objective anchors below the title (use actual title height + padding)
-          local firstObjOffset = -(titleHeight + 3)
-          self.objectives[i]:SetPoint("TOPLEFT", self, "TOPLEFT", 20, firstObjOffset)
+        -- Position based on whether bullet is shown
+        if showBullet then
+          -- Position the bullet
+          self.objectiveBullets[i]:ClearAllPoints()
+          if i == 1 then
+            local firstObjOffset = -(titleHeight + 3)
+            self.objectiveBullets[i]:SetPoint("TOPLEFT", self, "TOPLEFT", 20, firstObjOffset)
+          else
+            -- Anchor to bottom of previous objective row
+            self.objectiveBullets[i]:SetPoint("TOPLEFT", self.objectives[i-1], "BOTTOMLEFT", -bulletWidth, -2)
+          end
+
+          -- Position the objective text next to the bullet
+          self.objectives[i]:ClearAllPoints()
+          self.objectives[i]:SetPoint("TOPLEFT", self.objectiveBullets[i], "TOPLEFT", bulletWidth, 0)
+          self.objectiveBullets[i]:Show()
         else
-          -- Subsequent objectives anchor to bottom of previous objective
-          self.objectives[i]:SetPoint("TOPLEFT", self.objectives[i-1], "BOTTOMLEFT", 0, -2)
+          -- No bullet - position objective directly
+          self.objectives[i]:ClearAllPoints()
+          if i == 1 then
+            local firstObjOffset = -(titleHeight + 3)
+            self.objectives[i]:SetPoint("TOPLEFT", self, "TOPLEFT", 20, firstObjOffset)
+          else
+            self.objectives[i]:SetPoint("TOPLEFT", self.objectives[i-1], "BOTTOMLEFT", 0, -2)
+          end
+          self.objectiveBullets[i]:Hide()
         end
 
         -- Set text AFTER width is constrained so wrapping calculates correctly
         if objNum and objNeeded then
           local r,g,b = pfMap.tooltip:GetColor(objNum, objNeeded)
           self.objectives[i]:SetTextColor(r+.2, g+.2, b+.2)
-          self.objectives[i]:SetText(string.format("|cffffffff- %s:|r %s/%s", obj, objNum, objNeeded))
+
+          -- Format objective based on config options
+          local reqFirst = pfQuest_config["objectivereqfirst"] == "1"
+          local reqBrackets = pfQuest_config["objectivereqbrackets"] == "1"
+          local reqText = reqBrackets and string.format("[%s/%s]", objNum, objNeeded) or string.format("%s/%s", objNum, objNeeded)
+
+          if reqFirst then
+            self.objectives[i]:SetText(string.format("%s |cffffffff%s", reqText, obj))
+          else
+            self.objectives[i]:SetText(string.format("%s: %s", obj, reqText))
+          end
         else
-          self.objectives[i]:SetTextColor(.8,.8,.8)
-          self.objectives[i]:SetText("|cffffffff- " .. text)
+          -- Try to format as reputation objective first
+          local repText = FormatReputationText(text)
+          if repText then
+            self.objectives[i]:SetTextColor(1, 1, 1)  -- White base for colored text
+            self.objectives[i]:SetText(repText)
+          else
+            self.objectives[i]:SetTextColor(.8,.8,.8)
+            self.objectives[i]:SetText(text)
+          end
         end
 
+        -- Note: bullet visibility is handled in the positioning block above (Show/Hide based on showBullet)
         self.objectives[i]:Show()
         visibleObjectives = i
 
@@ -1073,30 +1329,34 @@ function tracker.ButtonEvent(self)
       level, color = 0, { r = .2, g = .8, b = 1 }
     end
 
-    -- Set explicit width on title for proper word wrapping
+    -- Set explicit width on title for proper word wrapping/truncation
     local trackerWidth = tonumber(pfQuest_config["trackerwidth"]) or 300
     local titleWidth = trackerWidth - 26  -- 16px left padding + 10px right padding
+    local truncateText = pfQuest_config["trackertruncate"] == "1"
     self.text:SetWidth(titleWidth)
+    self.text:SetWordWrap(not truncateText)
 
     local showlevel = pfQuest_config["trackerlevel"] == "1" and "[" .. ( level or "??" ) .. "] " or ""
     self.text:SetTextColor(color.r, color.g, color.b)
     self.text:SetText(showlevel .. title)
     self.level = tonumber(level)
-    self.tooltip = pfQuest_Loc["|cff33ffcc<Ctrl-Click>|r Show Map / Toggle Color\n|cff33ffcc<Shift-Click>|r Mark As Done"]
+    self.tooltip = pfQuest_Loc["|cff33ffcc<Ctrl-Click>|r Show Map / Toggle Color\n|cff33ffcc<Middle-Click>|r Mark As Done"]
 
     -- Use actual wrapped title height + padding
     local titleHeight = self.text:GetHeight()
     self:SetHeight(titleHeight + 5)
   elseif tracker.mode == "DATABASE_TRACKING" then
-    -- Set explicit width on title for proper word wrapping
+    -- Set explicit width on title for proper word wrapping/truncation
     local trackerWidth = tonumber(pfQuest_config["trackerwidth"]) or 300
     local titleWidth = trackerWidth - 26  -- 16px left padding + 10px right padding
+    local truncateText = pfQuest_config["trackertruncate"] == "1"
     self.text:SetWidth(titleWidth)
+    self.text:SetWordWrap(not truncateText)
 
     self.text:SetText(title)
     self.text:SetTextColor(1,1,1,1)
     self.text:SetTextColor(pfMap.str2rgb(title))
-    self.tooltip = pfQuest_Loc["|cff33ffcc<Ctrl-Click>|r Show Map / Toggle Color\n|cff33ffcc<Shift-Click>|r Hide Nodes"]
+    self.tooltip = pfQuest_Loc["|cff33ffcc<Ctrl-Click>|r Show Map / Toggle Color\n|cff33ffcc<Middle-Click>|r Hide Nodes"]
 
     -- Use actual wrapped title height + padding
     local titleHeight = self.text:GetHeight()
@@ -1132,10 +1392,12 @@ function tracker.ButtonEvent(self)
     local r, g, b = pfMap.tooltip:GetColor(cur, max > 0 and max or 1)
     local colorperc = string.format("|cff%02x%02x%02x", r*255, g*255, b*255)
 
-    -- Set explicit width on title for proper word wrapping
+    -- Set explicit width on title for proper word wrapping/truncation
     local trackerWidth = tonumber(pfQuest_config["trackerwidth"]) or 300
     local titleWidth = trackerWidth - 26  -- 16px left padding + 10px right padding
+    local truncateText = pfQuest_config["trackertruncate"] == "1"
     self.text:SetWidth(titleWidth)
+    self.text:SetWordWrap(not truncateText)
 
     self.tracked = true
     self.perc = percent
@@ -1169,15 +1431,17 @@ function tracker.ButtonEvent(self)
         self.objectives[1] = self:CreateFontString(nil, "HIGH", "GameFontNormal")
         self.objectives[1]:SetFont(_G.GetTrackerFont(), fontsize, _G.GetTrackerFontStyle())
         self.objectives[1]:SetJustifyH("LEFT")
-        self.objectives[1]:SetJustifyV("TOP")  -- Top-align text to prevent gaps
-        self.objectives[1]:SetWordWrap(true)
-        self.objectives[1]:SetNonSpaceWrap(true)  -- Allow wrapping on any character if needed
+        self.objectives[1]:SetJustifyV("TOP")
       end
+
+      -- Set word wrap based on config
+      self.objectives[1]:SetWordWrap(not truncateText)
+      self.objectives[1]:SetNonSpaceWrap(not truncateText)
 
       -- Calculate available width for objectives (button width minus padding)
       local objectiveWidth = trackerWidth - 30  -- 20px left padding + 10px right padding
 
-      -- Explicitly set width to force proper text wrapping
+      -- Explicitly set width to force proper text wrapping/truncation
       self.objectives[1]:SetWidth(objectiveWidth)
 
       -- Position the objective (below title using actual title height)
@@ -1276,10 +1540,12 @@ function tracker.ButtonEvent(self)
     local r, g, b = pfMap.tooltip:GetColor(totalCompleted, numCriteria > 0 and numCriteria or 1)
     local colorperc = string.format("|cff%02x%02x%02x", r*255, g*255, b*255)
 
-    -- Set explicit width on title for proper word wrapping
+    -- Set explicit width on title for proper word wrapping/truncation
     local trackerWidth = tonumber(pfQuest_config["trackerwidth"]) or 300
     local titleWidth = trackerWidth - 26  -- 16px left padding + 10px right padding
+    local truncateText = pfQuest_config["trackertruncate"] == "1"
     self.text:SetWidth(titleWidth)
+    self.text:SetWordWrap(not truncateText)
 
     -- Color the achievement name yellow (achievement color)
     local achievementColor = achievementData.completed and "|cff00ff00" or "|cffffff00"
@@ -1318,10 +1584,11 @@ function tracker.ButtonEvent(self)
           self.objectives[i]:SetFont(_G.GetTrackerFont(), fontsize, _G.GetTrackerFontStyle())
           self.objectives[i]:SetJustifyH("LEFT")
           self.objectives[i]:SetJustifyV("TOP")
-          self.objectives[i]:SetWordWrap(true)
-          self.objectives[i]:SetNonSpaceWrap(true)
         end
 
+        -- Set word wrap based on config
+        self.objectives[i]:SetWordWrap(not truncateText)
+        self.objectives[i]:SetNonSpaceWrap(not truncateText)
         self.objectives[i]:SetWidth(objectiveWidth)
 
         -- Position the objective (first uses title height, rest chain)

@@ -671,7 +671,8 @@ function pfMap:DeleteNode(addon, title)
 end
 
 function pfMap:NodeClick()
-  if IsShiftKeyDown() then
+  -- Middle-click to ignore/hide node (changed from shift-click for server compatibility)
+  if arg1 == "MiddleButton" then
     if this.questid and this.texture and this.layer < 5 then
       -- mark questnode as done
       pfQuest_history[this.questid] = { time(), UnitLevel("player") }
@@ -719,7 +720,7 @@ function pfMap:NodeEnter()
 
   -- add tooltip help if setting is enabled
   if pfQuest_config["tooltiphelp"] == "1" then
-    local text = pfQuest_Loc["Use <Shift>-Click To Remove Nodes"]
+    local text = pfQuest_Loc["Use <Middle>-Click To Remove Nodes"]
 
     if this.cluster then
       text = pfQuest_Loc["Hold <Ctrl> To Hide Cluster"]
@@ -728,7 +729,7 @@ function pfMap:NodeEnter()
     elseif not this.texture then
       text = pfQuest_Loc["Click Node To Change Color"]
     elseif this.questid and this.texture and this.layer < 5 then
-      text = pfQuest_Loc["Use <Shift>-Click To Mark Quest As Done"]
+      text = pfQuest_Loc["Use <Middle>-Click To Mark Quest As Done"]
     end
 
     -- update tooltip and sizes

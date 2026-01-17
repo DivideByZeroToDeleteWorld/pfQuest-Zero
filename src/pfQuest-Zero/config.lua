@@ -65,6 +65,53 @@ local function GetFontPath(fontName)
   end
 end
 
+-- Fallback borders when LSM is not available
+local fallbackBorders = {
+  ["None"] = "",
+  ["Solid"] = "Interface\\Buttons\\WHITE8X8",
+}
+
+-- Get available borders from LibSharedMedia or fallback
+local function GetAvailableBorders()
+  local LSM = GetLSM()
+  local borders = { "None" }  -- Always include None option first
+
+  if LSM then
+    local lsmBorders = LSM:List("border")
+    if lsmBorders then
+      for _, borderName in ipairs(lsmBorders) do
+        table.insert(borders, borderName)
+      end
+    end
+  end
+
+  -- Add fallback solid border if not already present
+  local hasSolid = false
+  for _, name in ipairs(borders) do
+    if name == "Solid" then hasSolid = true break end
+  end
+  if not hasSolid then
+    table.insert(borders, "Solid")
+  end
+
+  return borders
+end
+
+-- Get border texture path by name
+local function GetBorderPath(borderName)
+  if not borderName or borderName == "None" then
+    return nil
+  end
+
+  local LSM = GetLSM()
+  if LSM then
+    local path = LSM:Fetch("border", borderName, true)
+    if path then return path end
+  end
+
+  return fallbackBorders[borderName]
+end
+
 -- ============================================================================
 -- Config Panel Defaults
 -- ============================================================================
@@ -84,8 +131,8 @@ local function CreateStyledDropdown(parent, width, options)
   local fontSize = options.fontSize or 11
   local menuWidth = options.menuWidth or width  -- Allow menu to be wider than button
 
-  -- Get font
-  local fontPath = GetFontPath(pfQuest_config.configPanelFont or configPanelDefaults.font)
+  -- Get font (allow custom font path override for special characters)
+  local fontPath = options.customFontPath or GetFontPath(pfQuest_config.configPanelFont or configPanelDefaults.font)
   if not fontPath then fontPath = pfUI.font_default end
 
   -- Colors
@@ -485,6 +532,76 @@ local function CreateFontOutlineDropdown(parent, width, currentValue, onSelect, 
 end
 
 -- ============================================================================
+-- Border Dropdown (LSM borders with None option)
+-- ============================================================================
+local borderListRefreshed = false
+
+local function CreateBorderDropdown(parent, width, currentValue, onSelect, fontSize)
+  local borders = GetAvailableBorders()
+  local items = {}
+  for _, borderName in ipairs(borders) do
+    table.insert(items, { value = borderName, label = borderName })
+  end
+
+  local dropdown = CreateStyledDropdown(parent, width, {
+    items = items,
+    selectedValue = currentValue or "None",
+    onSelect = onSelect,
+    fontSize = fontSize or 11,
+    placeholder = "Select Border...",
+    menuWidth = 180,
+  })
+
+  -- Hook OnClick to refresh border list on first click (catches late-registered borders)
+  local origOnClick = dropdown:GetScript("OnClick")
+  dropdown:SetScript("OnClick", function()
+    if not borderListRefreshed then
+      borderListRefreshed = true
+      -- Refresh border list from LSM
+      local freshBorders = GetAvailableBorders()
+      local freshItems = {}
+      for _, borderName in ipairs(freshBorders) do
+        table.insert(freshItems, { value = borderName, label = borderName })
+      end
+      dropdown:SetItems(freshItems)
+    end
+    if origOnClick then origOnClick() end
+  end)
+
+  return dropdown
+end
+
+-- ============================================================================
+-- Bullet Style Dropdown (objective prefix characters)
+-- ============================================================================
+local function CreateBulletDropdown(parent, width, currentValue, onSelect, fontSize)
+  -- Path to Source Code Pro Bold font for special bullet characters
+  local bulletFontPath = "Interface\\AddOns\\pfQuest-Zero\\compat\\fonts\\SourceCodePro-Bold.ttf"
+
+  local bulletOptions = {
+    { value = "None", label = "None" },
+    { value = "-", label = "- Hyphen" },
+    { value = "•", label = "• Bullet" },
+    { value = "◆", label = "◆ Diamond" },
+    { value = "|-", label = "|- Pipe" },
+    { value = "▪", label = "▪ Square" },
+    { value = "▸", label = "▸ Arrow" },
+  }
+
+  local dropdown = CreateStyledDropdown(parent, width, {
+    items = bulletOptions,
+    selectedValue = currentValue or "-",
+    onSelect = onSelect,
+    fontSize = fontSize or 11,
+    placeholder = "Select Style...",
+    menuWidth = 120,
+    customFontPath = bulletFontPath,  -- Use Source Code Pro Bold for bullet characters
+  })
+
+  return dropdown
+end
+
+-- ============================================================================
 -- Reset Functions
 -- ============================================================================
 local reset = {
@@ -548,7 +665,25 @@ pfQuest_defconfig = {
   { text = L["Tracker Font"], default = "FranzBold", type = "fontdropdown", config = "trackerfont", block = "tracker" },
   { text = L["Tracker Font Style"], default = "OUTLINE", type = "fontoutlinedropdown", config = "trackerfontstyle", block = "tracker" },
   { text = L["Always Show Tracker Background"], default = "0", type = "checkbox", config = "trackerbgalways", block = "tracker" },
-  { text = L["Always Show Tracker Config Bar & BG"], default = "0", type = "checkbox", config = "trackerbaralways", block = "tracker" },
+  { text = L["Always Show Tracker Config Bar"], default = "0", type = "checkbox", config = "trackerbaralways", block = "tracker" },
+  { text = L["Tracker Background Color"], default = "0,0,0,0.2", type = "colorpicker", config = "trackerbgcolor", block = "tracker" },
+  { text = L["Tracker Config Bar Color"], default = "0,0,0,0.5", type = "colorpicker", config = "trackerpanelcolor", block = "tracker" },
+  { text = L["Tracker Border Texture"], default = "None", type = "borderdropdown", config = "trackerbordertexture", block = "tracker" },
+  { text = L["Tracker Border Width"], default = "2", type = "text", config = "trackerborderwidth", block = "tracker" },
+  { text = L["Tracker Border Color"], default = "0.3,0.3,0.3,1", type = "colorpicker", config = "trackerbordercolor", block = "tracker" },
+  { text = L["Show Objective Req. First"], default = "0", type = "checkbox", config = "objectivereqfirst", block = "tracker" },
+  { text = L["Show Objective Req. in Brackets"], default = "0", type = "checkbox", config = "objectivereqbrackets", block = "tracker" },
+  { text = L["Objective Bullet Style"], default = "-", type = "bulletdropdown", config = "objectivebullet", block = "tracker" },
+  { text = L["Truncate Text (No Word Wrap)"], default = "0", type = "checkbox", config = "trackertruncate", block = "tracker" },
+  { text = L["Reputation Faction Color"], default = "0.4,0.8,1,1", type = "colorpicker", config = "repfactioncolor", block = "tracker" },
+  { text = L["Rep: Hated"], default = "0.5,0,0,1", type = "colorpicker", config = "rephatedcolor", block = "tracker" },
+  { text = L["Rep: Hostile"], default = "0.8,0,0,1", type = "colorpicker", config = "rephostilecolor", block = "tracker" },
+  { text = L["Rep: Unfriendly"], default = "0.9,0.4,0,1", type = "colorpicker", config = "repunfriendlycolor", block = "tracker" },
+  { text = L["Rep: Neutral"], default = "1,1,0,1", type = "colorpicker", config = "repneutralcolor", block = "tracker" },
+  { text = L["Rep: Friendly"], default = "0.4,0.9,0.2,1", type = "colorpicker", config = "repfriendlycolor", block = "tracker" },
+  { text = L["Rep: Honored"], default = "0.2,0.8,0.5,1", type = "colorpicker", config = "rephonoredcolor", block = "tracker" },
+  { text = L["Rep: Revered"], default = "0.3,0.6,1,1", type = "colorpicker", config = "repreveredcolor", block = "tracker" },
+  { text = L["Rep: Exalted"], default = "0.8,0.5,1,1", type = "colorpicker", config = "repexaltedcolor", block = "tracker" },
 
   -- General Block
   { text = L["General"], default = nil, type = "header", block = "general" },
@@ -570,6 +705,8 @@ pfQuest_defconfig = {
   { text = L["Quest Tracker Visibility"], default = "0", type = "text", config = "trackeralpha", block = "questing" },
   { text = L["Quest Tracker Unfold Objectives"], default = "0", type = "checkbox", config = "trackerexpand", block = "questing" },
   { text = L["Quest Timers Fold Into Objectives"], default = "1", type = "checkbox", config = "collapsetimer", block = "questing" },
+  { text = L["Quest Fold Complete"], default = "0", type = "checkbox", config = "foldcomplete", block = "questing" },
+  { text = L["Quest Unfold Incomplete"], default = "0", type = "checkbox", config = "unfoldincomplete", block = "questing" },
   { text = L["Quest Objective Spawn Points (World Map)"], default = "1", type = "checkbox", config = "showspawn", block = "questing" },
   { text = L["Quest Objective Spawn Points (Mini Map)"], default = "1", type = "checkbox", config = "showspawnmini", block = "questing" },
   { text = L["Quest Objective Icons (World Map)"], default = "1", type = "checkbox", config = "showcluster", block = "questing" },
@@ -1036,6 +1173,11 @@ local function CreateConfigEntries()
             end
           end
 
+          -- Special handling for tracker visibility options
+          if this.config == "trackerbgalways" or this.config == "trackerbaralways" then
+            if _G.UpdateTrackerColors then _G.UpdateTrackerColors() end
+          end
+
           pfQuest:ResetAll()
         end)
 
@@ -1234,6 +1376,156 @@ local function CreateConfigEntries()
         if blockFrames[currentBlock] then
           table.insert(blockFrames[currentBlock].items, frame)
         end
+
+      elseif data.type == "borderdropdown" then
+        frame:SetPoint("TOPLEFT", pfQuestConfig.scrollChild, "TOPLEFT", 5, -yOffset)
+
+        -- Caption
+        frame.caption = frame:CreateFontString(nil, "OVERLAY")
+        frame.caption:SetFont(fontPath, fontSize, "OUTLINE")
+        frame.caption:SetPoint("LEFT", 5, 0)
+        frame.caption:SetTextColor(0.9, 0.9, 0.9, 1)
+        frame.caption:SetText(data.text)
+
+        -- Border dropdown
+        frame.input = CreateBorderDropdown(frame, 120, pfQuest_config[data.config] or data.default, function(value)
+          pfQuest_config[data.config] = value
+          if _G.UpdateTrackerColors then _G.UpdateTrackerColors() end
+          pfQuest:ResetAll()
+        end, fontSize)
+        frame.input:SetPoint("RIGHT", -5, 0)
+        frame.input.config = data.config
+
+        yOffset = yOffset + rowHeight + 4  -- Extra padding for dropdowns
+        if blockFrames[currentBlock] then
+          table.insert(blockFrames[currentBlock].items, frame)
+        end
+
+      elseif data.type == "bulletdropdown" then
+        frame:SetPoint("TOPLEFT", pfQuestConfig.scrollChild, "TOPLEFT", 5, -yOffset)
+
+        -- Caption
+        frame.caption = frame:CreateFontString(nil, "OVERLAY")
+        frame.caption:SetFont(fontPath, fontSize, "OUTLINE")
+        frame.caption:SetPoint("LEFT", 5, 0)
+        frame.caption:SetTextColor(0.9, 0.9, 0.9, 1)
+        frame.caption:SetText(data.text)
+
+        -- Bullet dropdown
+        frame.input = CreateBulletDropdown(frame, 100, pfQuest_config[data.config] or data.default, function(value)
+          pfQuest_config[data.config] = value
+          pfQuest:ResetAll()
+        end, fontSize)
+        frame.input:SetPoint("RIGHT", -5, 0)
+        frame.input.config = data.config
+
+        yOffset = yOffset + rowHeight + 4  -- Extra padding for dropdowns
+        if blockFrames[currentBlock] then
+          table.insert(blockFrames[currentBlock].items, frame)
+        end
+
+      elseif data.type == "colorpicker" then
+        frame:SetPoint("TOPLEFT", pfQuestConfig.scrollChild, "TOPLEFT", 5, -yOffset)
+
+        -- Caption
+        frame.caption = frame:CreateFontString(nil, "OVERLAY")
+        frame.caption:SetFont(fontPath, fontSize, "OUTLINE")
+        frame.caption:SetPoint("LEFT", 5, 0)
+        frame.caption:SetTextColor(0.9, 0.9, 0.9, 1)
+        frame.caption:SetText(data.text)
+
+        -- Color swatch button
+        frame.input = CreateFrame("Button", nil, frame)
+        frame.input:SetSize(50, 18)
+        frame.input:SetPoint("RIGHT", -5, 0)
+        frame.input:SetBackdrop({
+          bgFile = "Interface\\Buttons\\WHITE8X8",
+          edgeFile = "Interface\\Buttons\\WHITE8X8",
+          tile = false, tileSize = 1, edgeSize = 1,
+          insets = { left = 0, right = 0, top = 0, bottom = 0 }
+        })
+        frame.input:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+
+        frame.input.config = data.config
+
+        -- Parse color from config string "r,g,b,a"
+        local function ParseColor(colorStr)
+          if not colorStr then return 0, 0, 0, 1 end
+          local r, g, b, a = strsplit(",", colorStr)
+          return tonumber(r) or 0, tonumber(g) or 0, tonumber(b) or 0, tonumber(a) or 1
+        end
+
+        -- Format color to string
+        local function FormatColor(r, g, b, a)
+          return string.format("%.2f,%.2f,%.2f,%.2f", r, g, b, a)
+        end
+
+        -- Set initial color
+        local r, g, b, a = ParseColor(pfQuest_config[data.config] or data.default)
+        frame.input:SetBackdropColor(r, g, b, a)
+        frame.input.r, frame.input.g, frame.input.b, frame.input.a = r, g, b, a
+
+        -- Store the config key for the color picker callback
+        frame.input.configKey = data.config
+
+        frame.input:SetScript("OnClick", function()
+          local swatch = this
+
+          -- Store reference for callbacks
+          pfQuestConfig.activeColorSwatch = swatch
+
+          -- Set up color picker
+          ColorPickerFrame:SetColorRGB(swatch.r, swatch.g, swatch.b)
+          ColorPickerFrame.hasOpacity = true
+          ColorPickerFrame.opacity = 1 - swatch.a  -- WoW uses inverted opacity
+
+          ColorPickerFrame.previousValues = { swatch.r, swatch.g, swatch.b, swatch.a }
+
+          ColorPickerFrame.func = function()
+            local r, g, b = ColorPickerFrame:GetColorRGB()
+            local a = 1 - OpacitySliderFrame:GetValue()
+            if pfQuestConfig.activeColorSwatch then
+              pfQuestConfig.activeColorSwatch:SetBackdropColor(r, g, b, a)
+              pfQuestConfig.activeColorSwatch.r = r
+              pfQuestConfig.activeColorSwatch.g = g
+              pfQuestConfig.activeColorSwatch.b = b
+              pfQuestConfig.activeColorSwatch.a = a
+              pfQuest_config[pfQuestConfig.activeColorSwatch.configKey] = FormatColor(r, g, b, a)
+              -- Live update tracker colors
+              if _G.UpdateTrackerColors then _G.UpdateTrackerColors() end
+            end
+          end
+
+          ColorPickerFrame.opacityFunc = ColorPickerFrame.func
+
+          ColorPickerFrame.cancelFunc = function(prev)
+            if pfQuestConfig.activeColorSwatch and prev then
+              local r, g, b, a = prev[1], prev[2], prev[3], prev[4]
+              pfQuestConfig.activeColorSwatch:SetBackdropColor(r, g, b, a)
+              pfQuestConfig.activeColorSwatch.r = r
+              pfQuestConfig.activeColorSwatch.g = g
+              pfQuestConfig.activeColorSwatch.b = b
+              pfQuestConfig.activeColorSwatch.a = a
+              pfQuest_config[pfQuestConfig.activeColorSwatch.configKey] = FormatColor(r, g, b, a)
+              if _G.UpdateTrackerColors then _G.UpdateTrackerColors() end
+            end
+          end
+
+          ColorPickerFrame:Show()
+        end)
+
+        frame.input:SetScript("OnEnter", function()
+          this:SetBackdropBorderColor(0.5, 0.5, 0.5, 1)
+        end)
+
+        frame.input:SetScript("OnLeave", function()
+          this:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+        end)
+
+        yOffset = yOffset + rowHeight
+        if blockFrames[currentBlock] then
+          table.insert(blockFrames[currentBlock].items, frame)
+        end
       end
     end
   end
@@ -1301,6 +1593,13 @@ function pfQuestConfig:MigrateHistory()
 end
 
 function pfQuestConfig:UpdateConfigEntries()
+  -- Parse color from config string "r,g,b,a"
+  local function ParseColor(colorStr)
+    if not colorStr then return 0, 0, 0, 1 end
+    local r, g, b, a = strsplit(",", colorStr)
+    return tonumber(r) or 0, tonumber(g) or 0, tonumber(b) or 0, tonumber(a) or 1
+  end
+
   for _, data in pairs(pfQuest_defconfig) do
     if data.type and data.config and configFrames[data.text] then
       local frame = configFrames[data.text]
@@ -1308,10 +1607,14 @@ function pfQuestConfig:UpdateConfigEntries()
         frame.input:SetChecked(pfQuest_config[data.config] == "1")
       elseif data.type == "text" and frame.input then
         frame.input:SetText(pfQuest_config[data.config] or "")
-      elseif (data.type == "dropdown" or data.type == "fontdropdown" or data.type == "fontoutlinedropdown") and frame.input then
+      elseif (data.type == "dropdown" or data.type == "fontdropdown" or data.type == "fontoutlinedropdown" or data.type == "borderdropdown" or data.type == "bulletdropdown") and frame.input then
         if frame.input.SetSelectedValue then
           frame.input:SetSelectedValue(pfQuest_config[data.config])
         end
+      elseif data.type == "colorpicker" and frame.input then
+        local r, g, b, a = ParseColor(pfQuest_config[data.config] or data.default)
+        frame.input:SetBackdropColor(r, g, b, a)
+        frame.input.r, frame.input.g, frame.input.b, frame.input.a = r, g, b, a
       end
     end
   end
