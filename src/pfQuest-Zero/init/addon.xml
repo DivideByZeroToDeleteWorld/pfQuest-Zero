@@ -5,7 +5,11 @@
   <Include file="..\locales.lua"/>
   <Include file="..\config.lua"/>
   <Include file="..\slashcmd.lua"/>
+  <Include file="..\qdb\qdb.xml"/>
+  <Include file="..\database-selector.lua"/>
   <Include file="..\database.lua"/>
+  <Include file="..\dbselector-panel.lua"/>
+  <Include file="..\compare-panel.lua"/>
   <Include file="..\icons.lua"/>
   <Include file="..\map.lua"/>
   <Include file="..\quest.lua"/>

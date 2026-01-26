@@ -30,6 +30,8 @@ SlashCmdList["PFDB"] = function(input, editbox)
     DEFAULT_CHAT_FRAME:AddMessage("|cff33ffcc/db|cffffffff cal <npc> |cffcccccc - " .. "Add calibration point at NPC location")
     DEFAULT_CHAT_FRAME:AddMessage("|cff33ffcc/db|cffffffff cal done |cffcccccc - " .. "Calculate transform from calibration points")
     DEFAULT_CHAT_FRAME:AddMessage("|cff33ffcc/db|cffffffff cal status |cffcccccc - " .. "Show current calibration progress")
+    DEFAULT_CHAT_FRAME:AddMessage("|cff33ffcc/pfqdb|cffffffff |cffcccccc - " .. "Open database source selector panel")
+    DEFAULT_CHAT_FRAME:AddMessage("|cff33ffcc/pfcompare|cffffffff [zone] |cffcccccc - " .. "Open database compare panel")
     return
   end
 
@@ -54,9 +56,173 @@ SlashCmdList["PFDB"] = function(input, editbox)
 
   -- argument: debug
   if (arg1 == "debug") then
-    pfQuest_config.debug = not pfQuest_config.debug
-    DEFAULT_CHAT_FRAME:AddMessage("|cff33ffccpf|cffffffffQuest Debug Mode: " .. ( pfQuest_config.debug and "|cff33ff33ON" or "|cffff3333OFF" ))
-    pfQuest:Debug("Debug Mode Changed")
+    -- Toggle debug mode on/off
+    if arg2 == "on" then
+      pfQuest_config.debug = true
+      DEFAULT_CHAT_FRAME:AddMessage("|cff33ffccpf|cffffffffQuest Debug Mode: |cff33ff33ON|r")
+      return
+    elseif arg2 == "off" then
+      pfQuest_config.debug = false
+      DEFAULT_CHAT_FRAME:AddMessage("|cff33ffccpf|cffffffffQuest Debug Mode: |cffff3333OFF|r")
+      return
+    elseif arg2 == "" or arg2 == nil then
+      -- No argument = toggle
+      pfQuest_config.debug = not pfQuest_config.debug
+      DEFAULT_CHAT_FRAME:AddMessage("|cff33ffccpf|cffffffffQuest Debug Mode: " .. (pfQuest_config.debug and "|cff33ff33ON|r" or "|cffff3333OFF|r"))
+      return
+    end
+
+    -- If arg2 is "full" or "diag", run full diagnostics
+    if arg2 ~= "full" and arg2 ~= "diag" and arg2 ~= "diagnostics" then
+      return
+    end
+
+    -- Use a reliable chat output function
+    local function chatMsg(msg)
+      if ChatFrame1 then
+        ChatFrame1:AddMessage(msg)
+      elseif DEFAULT_CHAT_FRAME then
+        DEFAULT_CHAT_FRAME:AddMessage(msg)
+      elseif print then
+        print(msg)
+      end
+    end
+
+    local issues = {}
+
+    local function addCheck(category, name, checkFn)
+      local ok, result = pcall(checkFn)
+      local status, passed
+      if not ok then
+        status = "|cffff3333ERROR|r"
+        table.insert(issues, {cat = category, name = name, err = tostring(result)})
+        passed = false
+      elseif result then
+        status = "|cff33ff33YES|r"
+        passed = true
+      else
+        status = "|cffff8800NO|r"
+        table.insert(issues, {cat = category, name = name})
+        passed = false
+      end
+      chatMsg("  " .. name .. ": " .. status)
+      return passed
+    end
+
+    chatMsg("|cff33ffcc========== pfQuest-Zero Full Diagnostics ==========|r")
+    chatMsg("")
+
+    -- Core Systems
+    chatMsg("|cffffcc00[Core Systems]|r")
+    addCheck("Core", "pfQuest", function() return pfQuest end)
+    addCheck("Core", "pfDatabase", function() return pfDatabase end)
+    addCheck("Core", "pfMap", function() return pfMap end)
+    addCheck("Core", "pfBrowser", function() return pfBrowser end)
+    addCheck("Core", "pfQuest_config", function() return pfQuest_config end)
+    addCheck("Core", "pfQuest_defconfig", function() return pfQuest_defconfig end)
+    addCheck("Core", "pfQuestCompat", function() return pfQuestCompat end)
+    chatMsg("")
+
+    -- pfUI Dependencies
+    chatMsg("|cffffcc00[pfUI Dependencies]|r")
+    addCheck("pfUI", "pfUI", function() return pfUI end)
+    addCheck("pfUI", "pfUI.api", function() return pfUI and pfUI.api end)
+    addCheck("pfUI", "pfUI.font_default", function() return pfUI and pfUI.font_default end)
+    chatMsg("")
+
+    -- Config Panel
+    chatMsg("|cffffcc00[Config Panel]|r")
+    addCheck("Config", "pfQuestConfig frame", function() return pfQuestConfig end)
+    addCheck("Config", "pfQuestConfig.scrollFrame", function() return pfQuestConfig and pfQuestConfig.scrollFrame end)
+    addCheck("Config", "pfQuestConfig.scrollChild", function() return pfQuestConfig and pfQuestConfig.scrollChild end)
+    addCheck("Config", "pfQuestConfig.scrollBar", function() return pfQuestConfig and pfQuestConfig.scrollBar end)
+    addCheck("Config", "pfQuestConfig.searchBox", function() return pfQuestConfig and pfQuestConfig.searchBox end)
+    addCheck("Config", "pfQuestConfig.welcome", function() return pfQuestConfig and pfQuestConfig.welcome end)
+    addCheck("Config", "pfQuestConfig.save", function() return pfQuestConfig and pfQuestConfig.save end)
+    addCheck("Config", "pfQuestConfig.title", function() return pfQuestConfig and pfQuestConfig.title end)
+    addCheck("Config", "pfQuestConfig.close", function() return pfQuestConfig and pfQuestConfig.close end)
+    chatMsg("")
+
+    -- Tracker
+    chatMsg("|cffffcc00[Tracker]|r")
+    addCheck("Tracker", "pfQuest.tracker", function() return pfQuest and pfQuest.tracker end)
+    addCheck("Tracker", "tracker visible", function() return pfQuest and pfQuest.tracker and pfQuest.tracker:IsShown() end)
+    chatMsg("")
+
+    -- Database
+    chatMsg("|cffffcc00[Database]|r")
+    addCheck("Database", "pfDB", function() return pfDB end)
+    addCheck("Database", "pfDB.quests", function() return pfDB and pfDB.quests end)
+    addCheck("Database", "pfDB.units", function() return pfDB and pfDB.units end)
+    addCheck("Database", "pfDB.objects", function() return pfDB and pfDB.objects end)
+    addCheck("Database", "pfDB.items", function() return pfDB and pfDB.items end)
+    addCheck("Database", "pfDB.zones", function() return pfDB and pfDB.zones end)
+    chatMsg("")
+
+    -- Test Config Panel Show()
+    chatMsg("|cffffcc00[Config Panel Show Test]|r")
+    if pfQuestConfig then
+      local showOk, showErr = pcall(function() pfQuestConfig:Show() end)
+      if showOk then
+        chatMsg("  Show() call: |cff33ff33SUCCESS|r")
+        local visible = pfQuestConfig:IsShown()
+        chatMsg("  IsShown(): " .. (visible and "|cff33ff33YES|r" or "|cffff3333NO|r"))
+        if visible then
+          local point = pfQuestConfig:GetPoint()
+          chatMsg("  Position: " .. tostring(point))
+          chatMsg("  Size: " .. tostring(pfQuestConfig:GetWidth()) .. " x " .. tostring(pfQuestConfig:GetHeight()))
+          -- Hide it after test
+          pfQuestConfig:Hide()
+        else
+          table.insert(issues, {cat = "Config", name = "Panel not visible after Show()"})
+        end
+      else
+        chatMsg("  Show() call: |cffff3333FAILED|r")
+        chatMsg("  Error: |cffff8800" .. tostring(showErr) .. "|r")
+        table.insert(issues, {cat = "Config", name = "Show() failed", err = tostring(showErr)})
+      end
+    else
+      chatMsg("  |cffff3333Cannot test - pfQuestConfig is nil|r")
+    end
+    chatMsg("")
+
+    -- Summary
+    chatMsg("|cff33ffcc========== Summary ==========|r")
+    if table.getn(issues) == 0 then
+      chatMsg("|cff33ff33All checks passed!|r Everything should be working.")
+    else
+      chatMsg("|cffff3333Issues found: " .. table.getn(issues) .. "|r")
+      for _, issue in ipairs(issues) do
+        local msg = "  |cffff8800[" .. issue.cat .. "]|r " .. issue.name
+        if issue.err then
+          msg = msg .. " |cffff3333(" .. issue.err .. ")|r"
+        end
+        chatMsg(msg)
+      end
+      chatMsg("")
+      chatMsg("|cffffcc00Suggestions:|r")
+
+      -- Specific suggestions based on issues
+      local hasConfigIssue = false
+      local hasCoreIssue = false
+      local hasPfUIIssue = false
+      for _, issue in ipairs(issues) do
+        if issue.cat == "Config" then hasConfigIssue = true end
+        if issue.cat == "Core" then hasCoreIssue = true end
+        if issue.cat == "pfUI" then hasPfUIIssue = true end
+      end
+
+      if hasCoreIssue then
+        chatMsg("  - Core systems missing. Check for Lua errors on login.")
+      end
+      if hasPfUIIssue then
+        chatMsg("  - pfUI not loaded. Some features may not work correctly.")
+      end
+      if hasConfigIssue then
+        chatMsg("  - Config panel incomplete. Try /reload or check for errors.")
+      end
+    end
+    chatMsg("|cff33ffcc============================================|r")
     return
   end
 

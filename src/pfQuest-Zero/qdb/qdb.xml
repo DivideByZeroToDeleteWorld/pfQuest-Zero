@@ -1,0 +1,12 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+  <Script file="init.lua"/>
+  <Script file="zone-mapping.lua"/>
+  <!-- Questie database converted to pfQuest format -->
+  <Script file="qdb-classic-units.lua"/>
+  <Script file="qdb-classic-objects.lua"/>
+  <Script file="qdb-tbc-units.lua"/>
+  <Script file="qdb-tbc-objects.lua"/>
+  <Script file="qdb-wotlk-units.lua"/>
+  <Script file="qdb-wotlk-objects.lua"/>
+  <Script file="questie-loader.lua"/>
+</Ui>

@@ -116,10 +116,12 @@ end
 -- Config Panel Defaults
 -- ============================================================================
 local configPanelDefaults = {
-  width = 320,
+  width = 400,
   height = 700,
   fontSize = 11,
   font = "FranzBold",
+  minWidth = 400,
+  minHeight = 400,
 }
 
 -- ============================================================================
@@ -740,6 +742,10 @@ pfQuest_defconfig = {
   { text = L["Show Route On Minimap"], default = "0", type = "checkbox", config = "routeminimap", block = "routes" },
   { text = L["Show Arrow Along Routes"], default = "1", type = "checkbox", config = "arrow", block = "routes" },
 
+  -- Database Block
+  { text = L["Database Choices"], default = nil, type = "header", block = "database" },
+  { text = L["Database Settings"], default = "1", type = "button", buttonText = "GO", func = function() if pfQDB and pfQDB.TogglePanel then pfQDB:TogglePanel() end end, block = "database" },
+
   -- User Data Block
   { text = L["User Data"], default = nil, type = "header", block = "userdata" },
   { text = L["Reset Configuration"], default = "1", type = "button", func = reset.config, block = "userdata" },
@@ -799,6 +805,11 @@ end
 local function CreateConfigPanel()
   local panelWidth = tonumber(pfQuest_config.configPanelWidth) or configPanelDefaults.width
   local panelHeight = tonumber(pfQuest_config.configPanelHeight) or configPanelDefaults.height
+
+  -- Ensure minimum dimensions (protect against 0 or negative values)
+  if panelWidth < configPanelDefaults.minWidth then panelWidth = configPanelDefaults.width end
+  if panelHeight < configPanelDefaults.minHeight then panelHeight = configPanelDefaults.height end
+
   local fontSize = GetConfigFontSize()
   local fontPath = GetConfigFont()
 
@@ -845,10 +856,29 @@ local function CreateConfigPanel()
 
     pfQuestConfig.close:SetScript("OnClick", function() pfQuestConfig:Hide() end)
     pfQuestConfig.close:SetScript("OnEnter", function()
-      this:SetBackdropColor(0.5, 0.1, 0.1, 1)
+      if this.isPressed then
+        this:SetBackdropColor(0.2, 0.05, 0.05, 1)
+      else
+        this:SetBackdropColor(0.5, 0.1, 0.1, 1)
+      end
     end)
     pfQuestConfig.close:SetScript("OnLeave", function()
+      this.isPressed = false
       this:SetBackdropColor(0.3, 0.1, 0.1, 1)
+    end)
+    pfQuestConfig.close:SetScript("OnMouseDown", function()
+      this.isPressed = true
+      this:SetBackdropColor(0.2, 0.05, 0.05, 1)
+      this.text:SetPoint("CENTER", 1, -1)
+    end)
+    pfQuestConfig.close:SetScript("OnMouseUp", function()
+      this.isPressed = false
+      this.text:SetPoint("CENTER", 0, 0)
+      if MouseIsOver(this) then
+        this:SetBackdropColor(0.5, 0.1, 0.1, 1)
+      else
+        this:SetBackdropColor(0.3, 0.1, 0.1, 1)
+      end
     end)
   end
 
@@ -856,7 +886,7 @@ local function CreateConfigPanel()
   if not pfQuestConfig.scrollFrame then
     pfQuestConfig.scrollFrame = CreateFrame("ScrollFrame", nil, pfQuestConfig)
     pfQuestConfig.scrollFrame:SetPoint("TOPLEFT", 5, -30)
-    pfQuestConfig.scrollFrame:SetPoint("BOTTOMRIGHT", -12, 45)  -- Leave room for scrollbar
+    pfQuestConfig.scrollFrame:SetPoint("BOTTOMRIGHT", -12, 70)  -- Leave room for scrollbar and search box
 
     pfQuestConfig.scrollChild = CreateFrame("Frame", nil, pfQuestConfig.scrollFrame)
     pfQuestConfig.scrollChild:SetWidth(panelWidth - 17)  -- Account for scrollbar
@@ -867,7 +897,7 @@ local function CreateConfigPanel()
     pfQuestConfig.scrollBar = CreateFrame("Frame", nil, pfQuestConfig)
     pfQuestConfig.scrollBar:SetWidth(6)
     pfQuestConfig.scrollBar:SetPoint("TOPRIGHT", -5, -30)
-    pfQuestConfig.scrollBar:SetPoint("BOTTOMRIGHT", -5, 45)
+    pfQuestConfig.scrollBar:SetPoint("BOTTOMRIGHT", -5, 70)
     pfQuestConfig.scrollBar:SetBackdrop({
       bgFile = "Interface\\Buttons\\WHITE8X8",
     })
@@ -953,8 +983,108 @@ local function CreateConfigPanel()
     pfQuestConfig.scrollChild:SetWidth(panelWidth - 17)
   end
 
+  -- Search box (above bottom buttons)
+  if not pfQuestConfig.searchBox then
+    -- Ensure we have a valid font path (fallback to guaranteed WoW font)
+    local searchFontPath = fontPath or "Fonts\\FRIZQT__.TTF"
+
+    pfQuestConfig.searchBox = CreateFrame("EditBox", nil, pfQuestConfig)
+    pfQuestConfig.searchBox:SetSize(panelWidth - 10, 20)
+    pfQuestConfig.searchBox:SetPoint("BOTTOMLEFT", 5, 42)
+    pfQuestConfig.searchBox:SetPoint("BOTTOMRIGHT", -5, 42)
+    pfQuestConfig.searchBox:SetFont(searchFontPath, fontSize, "OUTLINE")
+    pfQuestConfig.searchBox:SetTextColor(0.9, 0.9, 0.9, 1)
+    pfQuestConfig.searchBox:SetJustifyH("LEFT")
+    pfQuestConfig.searchBox:SetTextInsets(22, 24, 2, 2)
+    pfQuestConfig.searchBox:SetAutoFocus(false)
+    pfQuestConfig.searchBox:SetBackdrop({
+      bgFile = "Interface\\Buttons\\WHITE8X8",
+      edgeFile = "Interface\\Buttons\\WHITE8X8",
+      tile = false, tileSize = 1, edgeSize = 1,
+      insets = { left = 0, right = 0, top = 0, bottom = 0 }
+    })
+    pfQuestConfig.searchBox:SetBackdropColor(0.08, 0.08, 0.08, 1)
+    pfQuestConfig.searchBox:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+
+    -- Placeholder text
+    -- Search icon (texture)
+    pfQuestConfig.searchBox.icon = pfQuestConfig.searchBox:CreateTexture(nil, "OVERLAY")
+    pfQuestConfig.searchBox.icon:SetTexture(pfQuestConfig.path.."\\img\\tracker_search")
+    pfQuestConfig.searchBox.icon:SetHeight(14)
+    pfQuestConfig.searchBox.icon:SetWidth(14)
+    pfQuestConfig.searchBox.icon:SetVertexColor(0.5, 0.5, 0.5)
+    pfQuestConfig.searchBox.icon:SetPoint("LEFT", 6, 0)
+
+    pfQuestConfig.searchBox.placeholder = pfQuestConfig.searchBox:CreateFontString(nil, "OVERLAY")
+    pfQuestConfig.searchBox.placeholder:SetFont(searchFontPath, fontSize, "OUTLINE")
+    pfQuestConfig.searchBox.placeholder:SetPoint("LEFT", 22, 0)
+    pfQuestConfig.searchBox.placeholder:SetTextColor(0.4, 0.4, 0.4, 1)
+    pfQuestConfig.searchBox.placeholder:SetText("Search settings...")
+
+    -- Clear button (shows when there's text)
+    pfQuestConfig.searchBox.clear = CreateFrame("Button", nil, pfQuestConfig.searchBox)
+    pfQuestConfig.searchBox.clear:SetSize(14, 14)
+    pfQuestConfig.searchBox.clear:SetPoint("RIGHT", -5, 0)
+    pfQuestConfig.searchBox.clear:Hide()
+
+    pfQuestConfig.searchBox.clear.text = pfQuestConfig.searchBox.clear:CreateFontString(nil, "OVERLAY")
+    pfQuestConfig.searchBox.clear.text:SetFont(searchFontPath, fontSize, "OUTLINE")
+    pfQuestConfig.searchBox.clear.text:SetPoint("CENTER", 0, 0)
+    pfQuestConfig.searchBox.clear.text:SetText("x")
+    pfQuestConfig.searchBox.clear.text:SetTextColor(0.6, 0.6, 0.6, 1)
+
+    pfQuestConfig.searchBox.clear:SetScript("OnClick", function()
+      pfQuestConfig.searchBox:SetText("")
+      pfQuestConfig.searchBox:ClearFocus()
+    end)
+    pfQuestConfig.searchBox.clear:SetScript("OnEnter", function()
+      this.text:SetTextColor(1, 0.3, 0.3, 1)
+    end)
+    pfQuestConfig.searchBox.clear:SetScript("OnLeave", function()
+      this.text:SetTextColor(0.6, 0.6, 0.6, 1)
+    end)
+
+    pfQuestConfig.searchBox:SetScript("OnTextChanged", function()
+      local text = this:GetText()
+      if text and text ~= "" then
+        this.placeholder:Hide()
+        this.icon:Hide()
+        this.clear:Show()
+      else
+        this.placeholder:Show()
+        this.icon:Show()
+        this.clear:Hide()
+      end
+      -- Filter config entries
+      if pfQuestConfig.FilterEntries then
+        pfQuestConfig:FilterEntries(text)
+      end
+    end)
+
+    pfQuestConfig.searchBox:SetScript("OnEscapePressed", function()
+      this:SetText("")
+      this:ClearFocus()
+    end)
+
+    pfQuestConfig.searchBox:SetScript("OnEnterPressed", function()
+      this:ClearFocus()
+    end)
+
+    pfQuestConfig.searchBox:SetScript("OnEditFocusGained", function()
+      this:SetBackdropBorderColor(0.2, 0.8, 0.6, 1)
+    end)
+
+    pfQuestConfig.searchBox:SetScript("OnEditFocusLost", function()
+      this:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+    end)
+  else
+    -- Update size for new panel width
+    pfQuestConfig.searchBox:SetPoint("BOTTOMLEFT", 5, 42)
+    pfQuestConfig.searchBox:SetPoint("BOTTOMRIGHT", -5, 42)
+  end
+
   -- Bottom buttons (3 buttons: Welcome Screen, Save, Save & Reload)
-  local buttonWidth = (panelWidth - 20) / 3 - 3  -- 3 buttons with spacing
+  local buttonWidth = (panelWidth - 20) / 3  -- 3 buttons with 5px margins and gaps
 
   if not pfQuestConfig.welcome then
     pfQuestConfig.welcome = CreateFrame("Button", nil, pfQuestConfig)
@@ -978,10 +1108,29 @@ local function CreateConfigPanel()
       pfQuestInit:Show()
     end)
     pfQuestConfig.welcome:SetScript("OnEnter", function()
-      this:SetBackdropColor(0.15, 0.15, 0.15, 1)
+      if this.isPressed then
+        this:SetBackdropColor(0.05, 0.05, 0.05, 1)
+      else
+        this:SetBackdropColor(0.15, 0.15, 0.15, 1)
+      end
     end)
     pfQuestConfig.welcome:SetScript("OnLeave", function()
+      this.isPressed = false
       this:SetBackdropColor(0.1, 0.1, 0.1, 1)
+    end)
+    pfQuestConfig.welcome:SetScript("OnMouseDown", function()
+      this.isPressed = true
+      this:SetBackdropColor(0.05, 0.05, 0.05, 1)
+      this.text:SetPoint("CENTER", 1, -1)
+    end)
+    pfQuestConfig.welcome:SetScript("OnMouseUp", function()
+      this.isPressed = false
+      this.text:SetPoint("CENTER", 0, 0)
+      if MouseIsOver(this) then
+        this:SetBackdropColor(0.15, 0.15, 0.15, 1)
+      else
+        this:SetBackdropColor(0.1, 0.1, 0.1, 1)
+      end
     end)
   end
 
@@ -1007,10 +1156,29 @@ local function CreateConfigPanel()
       pfQuestConfig:Hide()
     end)
     pfQuestConfig.save:SetScript("OnEnter", function()
-      this:SetBackdropColor(0.15, 0.25, 0.15, 1)
+      if this.isPressed then
+        this:SetBackdropColor(0.05, 0.1, 0.05, 1)
+      else
+        this:SetBackdropColor(0.15, 0.25, 0.15, 1)
+      end
     end)
     pfQuestConfig.save:SetScript("OnLeave", function()
+      this.isPressed = false
       this:SetBackdropColor(0.1, 0.15, 0.1, 1)
+    end)
+    pfQuestConfig.save:SetScript("OnMouseDown", function()
+      this.isPressed = true
+      this:SetBackdropColor(0.05, 0.1, 0.05, 1)
+      this.text:SetPoint("CENTER", 1, -1)
+    end)
+    pfQuestConfig.save:SetScript("OnMouseUp", function()
+      this.isPressed = false
+      this.text:SetPoint("CENTER", 0, 0)
+      if MouseIsOver(this) then
+        this:SetBackdropColor(0.15, 0.25, 0.15, 1)
+      else
+        this:SetBackdropColor(0.1, 0.15, 0.1, 1)
+      end
     end)
   end
 
@@ -1034,15 +1202,34 @@ local function CreateConfigPanel()
 
     pfQuestConfig.saveReload:SetScript("OnClick", ReloadUI)
     pfQuestConfig.saveReload:SetScript("OnEnter", function()
-      this:SetBackdropColor(0.25, 0.15, 0.15, 1)
+      if this.isPressed then
+        this:SetBackdropColor(0.1, 0.05, 0.05, 1)
+      else
+        this:SetBackdropColor(0.25, 0.15, 0.15, 1)
+      end
     end)
     pfQuestConfig.saveReload:SetScript("OnLeave", function()
+      this.isPressed = false
       this:SetBackdropColor(0.15, 0.1, 0.1, 1)
+    end)
+    pfQuestConfig.saveReload:SetScript("OnMouseDown", function()
+      this.isPressed = true
+      this:SetBackdropColor(0.1, 0.05, 0.05, 1)
+      this.text:SetPoint("CENTER", 1, -1)
+    end)
+    pfQuestConfig.saveReload:SetScript("OnMouseUp", function()
+      this.isPressed = false
+      this.text:SetPoint("CENTER", 0, 0)
+      if MouseIsOver(this) then
+        this:SetBackdropColor(0.25, 0.15, 0.15, 1)
+      else
+        this:SetBackdropColor(0.15, 0.1, 0.1, 1)
+      end
     end)
   end
 
   -- Update button sizes for new panel width
-  local buttonWidth = (panelWidth - 20) / 3 - 3
+  local buttonWidth = (panelWidth - 20) / 3
   pfQuestConfig.welcome:SetWidth(buttonWidth)
   pfQuestConfig.save:SetWidth(buttonWidth)
   pfQuestConfig.saveReload:SetWidth(buttonWidth)
@@ -1231,6 +1418,21 @@ local function CreateConfigEntries()
 
         -- Config panel settings need to rebuild, so only do it on focus loss
         frame.input:SetScript("OnEditFocusLost", function()
+          -- Enforce minimum config panel dimensions
+          if this.config == "configPanelWidth" then
+            local val = tonumber(pfQuest_config.configPanelWidth)
+            if not val or val < configPanelDefaults.minWidth then
+              pfQuest_config.configPanelWidth = configPanelDefaults.minWidth
+              this:SetText(tostring(configPanelDefaults.minWidth))
+            end
+          elseif this.config == "configPanelHeight" then
+            local val = tonumber(pfQuest_config.configPanelHeight)
+            if not val or val < configPanelDefaults.minHeight then
+              pfQuest_config.configPanelHeight = configPanelDefaults.minHeight
+              this:SetText(tostring(configPanelDefaults.minHeight))
+            end
+          end
+
           if this.config == "configPanelWidth" or this.config == "configPanelHeight" or this.config == "configPanelFontSize" then
             CreateConfigPanel()
             CreateConfigEntries()
@@ -1268,15 +1470,34 @@ local function CreateConfigEntries()
         frame.input.text = frame.input:CreateFontString(nil, "OVERLAY")
         frame.input.text:SetFont(fontPath, fontSize, "OUTLINE")
         frame.input.text:SetPoint("CENTER", 0, 0)
-        frame.input.text:SetText("OK")
+        frame.input.text:SetText(data.buttonText or "OK")
         frame.input.text:SetTextColor(0.8, 0.8, 0.8, 1)
 
         frame.input:SetScript("OnClick", data.func)
         frame.input:SetScript("OnEnter", function()
-          this:SetBackdropColor(0.25, 0.25, 0.25, 1)
+          if this.isPressed then
+            this:SetBackdropColor(0.08, 0.08, 0.08, 1)
+          else
+            this:SetBackdropColor(0.25, 0.25, 0.25, 1)
+          end
         end)
         frame.input:SetScript("OnLeave", function()
+          this.isPressed = false
           this:SetBackdropColor(0.15, 0.15, 0.15, 1)
+        end)
+        frame.input:SetScript("OnMouseDown", function()
+          this.isPressed = true
+          this:SetBackdropColor(0.08, 0.08, 0.08, 1)
+          this.text:SetPoint("CENTER", 1, -1)
+        end)
+        frame.input:SetScript("OnMouseUp", function()
+          this.isPressed = false
+          this.text:SetPoint("CENTER", 0, 0)
+          if MouseIsOver(this) then
+            this:SetBackdropColor(0.25, 0.25, 0.25, 1)
+          else
+            this:SetBackdropColor(0.15, 0.15, 0.15, 1)
+          end
         end)
 
         yOffset = yOffset + rowHeight
@@ -1557,6 +1778,171 @@ local function CreateConfigEntries()
 end
 
 -- ============================================================================
+-- Filter Config Entries (Search)
+-- ============================================================================
+function pfQuestConfig:FilterEntries(searchText)
+  if not configFrames then return end
+
+  local fontSize = GetConfigFontSize()
+  local fontPath = GetConfigFont()
+  local panelWidth = tonumber(pfQuest_config.configPanelWidth) or configPanelDefaults.width
+  local contentWidth = panelWidth - 20
+  local rowHeight = fontSize + 10
+
+  -- Create or update the "no matches" message frame
+  if not pfQuestConfig.noMatchMessage then
+    pfQuestConfig.noMatchMessage = pfQuestConfig.scrollChild:CreateFontString(nil, "OVERLAY")
+    pfQuestConfig.noMatchMessage:SetFont(fontPath, fontSize, "OUTLINE")
+    pfQuestConfig.noMatchMessage:SetPoint("TOPLEFT", pfQuestConfig.scrollChild, "TOPLEFT", 10, -5)
+    pfQuestConfig.noMatchMessage:SetPoint("TOPRIGHT", pfQuestConfig.scrollChild, "TOPRIGHT", -10, -5)
+    pfQuestConfig.noMatchMessage:SetJustifyH("CENTER")
+    pfQuestConfig.noMatchMessage:SetTextColor(1, 0.7, 0.2, 1)  -- Orange/gold color
+  end
+
+  -- Normalize search text (lowercase, trim)
+  searchText = searchText and string.lower(strtrim(searchText)) or ""
+  local hasFilter = searchText ~= ""
+
+  -- Track which blocks have visible items
+  local visibleBlocks = {}
+  local visibleItems = {}
+  local matchCount = 0
+
+  -- First pass: determine which items match the search
+  for idx, data in ipairs(pfQuest_defconfig) do
+    if data.type and data.text then
+      local matches = false
+
+      if not hasFilter then
+        -- No filter = show everything
+        matches = true
+      elseif data.type == "header" then
+        -- Headers will be shown if their block has matching items (checked later)
+        matches = false
+      else
+        -- Check if setting name contains search text
+        local settingName = string.lower(data.text or "")
+        local configKey = string.lower(data.config or "")
+        local blockName = string.lower(data.block or "")
+
+        matches = string.find(settingName, searchText, 1, true) or
+                  string.find(configKey, searchText, 1, true) or
+                  string.find(blockName, searchText, 1, true)
+
+        if matches then
+          matchCount = matchCount + 1
+        end
+      end
+
+      if matches and data.block then
+        visibleBlocks[data.block] = true
+      end
+
+      visibleItems[data.text or idx] = matches
+    end
+  end
+
+  -- Check if we have no matches - if so, show everything with a message
+  local showNoMatchMessage = hasFilter and matchCount == 0
+  if showNoMatchMessage then
+    -- Reset to show everything
+    visibleBlocks = {}
+    visibleItems = {}
+    for idx, data in ipairs(pfQuest_defconfig) do
+      if data.type and data.text then
+        visibleItems[data.text or idx] = true
+        if data.block then
+          visibleBlocks[data.block] = true
+        end
+      end
+    end
+    pfQuestConfig.noMatchMessage:SetText("No options match \"" .. searchText .. "\" - showing all")
+    pfQuestConfig.noMatchMessage:Show()
+  else
+    pfQuestConfig.noMatchMessage:Hide()
+  end
+
+  -- Second pass: show headers for blocks that have visible items
+  if hasFilter and not showNoMatchMessage then
+    for idx, data in ipairs(pfQuest_defconfig) do
+      if data.type == "header" and data.block and visibleBlocks[data.block] then
+        visibleItems[data.text or idx] = true
+      end
+    end
+  end
+
+  -- Third pass: reposition visible items
+  local yOffset = 0
+  local currentBlock = nil
+  local blockPadding = 10
+
+  -- Add offset for the no-match message if visible
+  if showNoMatchMessage then
+    yOffset = yOffset + rowHeight + 5
+  end
+
+  for idx, data in ipairs(pfQuest_defconfig) do
+    if data.type then
+      local key = data.text or idx
+      local frame = configFrames[key]
+
+      if frame then
+        if visibleItems[key] then
+          -- Show and reposition
+          frame:Show()
+
+          if data.type == "header" then
+            yOffset = yOffset + (currentBlock and blockPadding or 0)
+            frame:ClearAllPoints()
+            frame:SetPoint("TOPLEFT", pfQuestConfig.scrollChild, "TOPLEFT", 0, -yOffset)
+            yOffset = yOffset + rowHeight + 6
+            currentBlock = data.block
+          else
+            frame:ClearAllPoints()
+            frame:SetPoint("TOPLEFT", pfQuestConfig.scrollChild, "TOPLEFT", 5, -yOffset)
+
+            -- Dropdowns need extra padding
+            if data.type == "dropdown" or data.type == "fontdropdown" or
+               data.type == "fontoutlinedropdown" or data.type == "borderdropdown" or
+               data.type == "bulletdropdown" then
+              yOffset = yOffset + rowHeight + 4
+            else
+              yOffset = yOffset + rowHeight
+            end
+          end
+        else
+          -- Hide non-matching items
+          frame:Hide()
+        end
+      end
+    end
+  end
+
+  -- Update scroll child height
+  pfQuestConfig.scrollChild:SetHeight(yOffset + 10)
+
+  -- Update scrollbar
+  if pfQuestConfig.scrollBar and pfQuestConfig.scrollThumb then
+    local contentHeight = yOffset + 10
+    local viewHeight = pfQuestConfig.scrollFrame:GetHeight()
+    local barHeight = pfQuestConfig.scrollBar:GetHeight()
+
+    if contentHeight > viewHeight then
+      local thumbHeight = math.max(20, (viewHeight / contentHeight) * barHeight)
+      pfQuestConfig.scrollThumb:SetHeight(thumbHeight)
+      pfQuestConfig.scrollBar:Show()
+    else
+      pfQuestConfig.scrollBar:Hide()
+    end
+
+    -- Reset scroll position to top when filtering
+    pfQuestConfig.scrollThumb:ClearAllPoints()
+    pfQuestConfig.scrollThumb:SetPoint("TOP", pfQuestConfig.scrollBar, "TOP", 0, 0)
+    pfQuestConfig.scrollFrame:SetVerticalScroll(0)
+  end
+end
+
+-- ============================================================================
 -- Load/Update Config
 -- ============================================================================
 function pfQuestConfig:LoadConfig()
@@ -1565,6 +1951,16 @@ function pfQuestConfig:LoadConfig()
     if data.config and pfQuest_config[data.config] == nil then
       pfQuest_config[data.config] = data.default
     end
+  end
+
+  -- Sanitize panel dimensions (fix corrupted values)
+  local width = tonumber(pfQuest_config.configPanelWidth)
+  local height = tonumber(pfQuest_config.configPanelHeight)
+  if not width or width < configPanelDefaults.minWidth then
+    pfQuest_config.configPanelWidth = configPanelDefaults.width
+  end
+  if not height or height < configPanelDefaults.minHeight then
+    pfQuest_config.configPanelHeight = configPanelDefaults.height
   end
 end
 
@@ -1660,6 +2056,10 @@ end)
 
 pfQuestConfig:SetScript("OnShow", function()
   this:UpdateConfigEntries()
+  -- Clear search box when panel is shown
+  if pfQuestConfig.searchBox then
+    pfQuestConfig.searchBox:SetText("")
+  end
 end)
 
 table.insert(UISpecialFrames, "pfQuestConfig")

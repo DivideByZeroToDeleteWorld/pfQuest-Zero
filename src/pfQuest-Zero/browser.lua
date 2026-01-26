@@ -54,24 +54,42 @@ local function ResultButtonEnter()
     local name = this.name
     local maps = {}
     GameTooltip:SetOwner(this, "ANCHOR_LEFT", -10, -5)
-    GameTooltip:SetText(name, .3, 1, .8)
-    if this.btype == "units" then
-      local unitData = units[id]
 
-      if unitData and unitData.lvl then
+    -- Show database source in tooltip title
+    local titleColor = { .3, 1, .8 }
+    if pfBrowser.dbSource == "questie" then
+      GameTooltip:SetText("|cffff9900[Questie]|r " .. name, titleColor[1], titleColor[2], titleColor[3])
+    else
+      GameTooltip:SetText(name, titleColor[1], titleColor[2], titleColor[3])
+    end
+
+    -- Get data from appropriate database
+    local entityData
+    if pfBrowser.dbSource == "questie" and pfQDB and pfQDB.questieDataAvailable then
+      if this.btype == "units" then
+        entityData = pfQDB:GetQuestieNPCData(id)
+      else
+        entityData = pfQDB:GetQuestieObjectData(id)
+      end
+    else
+      entityData = pfDB[this.btype]["data"][id]
+    end
+
+    if this.btype == "units" then
+      if entityData and entityData.lvl then
         GameTooltip:AddLine(" ")
-        GameTooltip:AddDoubleLine(pfQuest_Loc["Level"], unitData.lvl, 1,1,.8, 1,1,1)
+        GameTooltip:AddDoubleLine(pfQuest_Loc["Level"], entityData.lvl, 1,1,.8, 1,1,1)
       end
 
       local reactionStringA = "|c00ff0000" .. pfQuest_Loc["Hostile"] .. "|r"
       local reactionStringH = "|c00ff0000" .. pfQuest_Loc["Hostile"] .. "|r"
-      if unitData and unitData.fac then
-        if unitData.fac == "AH" then
+      if entityData and entityData.fac then
+        if entityData.fac == "AH" then
           reactionStringA = "|c0000ff00" .. pfQuest_Loc["Friendly"] .. "|r"
           reactionStringH = "|c0000ff00" .. pfQuest_Loc["Friendly"] .. "|r"
-        elseif unitData.fac == "A" then
+        elseif entityData.fac == "A" then
           reactionStringA = "|c0000ff00" .. pfQuest_Loc["Friendly"] .. "|r"
-        elseif unitData.fac == "H" then
+        elseif entityData.fac == "H" then
           reactionStringH = "|c0000ff00" .. pfQuest_Loc["Friendly"] .. "|r"
         end
       end
@@ -80,8 +98,8 @@ local function ResultButtonEnter()
       GameTooltip:AddDoubleLine(pfQuest_Loc["Horde"], reactionStringH, 1,1,1, 0,0,0)
     end
     GameTooltip:AddLine("\n" .. pfQuest_Loc["Location"], 1,1,.8)
-    if pfDB[this.btype]["data"][id] and pfDB[this.btype]["data"][id]["coords"] then
-      for _, data in pairs(pfDB[this.btype]["data"][id]["coords"]) do
+    if entityData and entityData.coords then
+      for _, data in pairs(entityData.coords) do
         maps[data[3]] = maps[data[3]] or { count = 0 }
         maps[data[3]].count = maps[data[3]].count + 1
       end
@@ -146,20 +164,32 @@ local function ResultButtonClick()
       pfMap:ShowMapID(pfDatabase:GetBestMap(maps))
     end
   elseif this.btype == "units" then
-    if pfBrowser.selectState then
-      local maps = pfDatabase:SearchMob(this.name, meta)
+    local maps
+    if pfBrowser.dbSource == "questie" and pfQDB and pfQDB.questieDataAvailable then
+      -- Use Questie search
+      maps = pfQDB:SearchQuestieMobID(this.id, meta)
+      pfMap:UpdateNodes()
+      pfMap:ShowMapID(pfDatabase:GetBestMap(maps))
+    elseif pfBrowser.selectState then
+      maps = pfDatabase:SearchMob(this.name, meta)
       pfMap:ShowMapID(pfDatabase:GetBestMap(maps))
     else
-      local maps = pfDatabase:SearchMobID(this.id, meta)
+      maps = pfDatabase:SearchMobID(this.id, meta)
       pfMap:UpdateNodes()
       pfMap:ShowMapID(pfDatabase:GetBestMap(maps))
     end
   elseif this.btype == "objects" then
-    if pfBrowser.selectState then
-      local maps = pfDatabase:SearchObject(this.name, meta)
+    local maps
+    if pfBrowser.dbSource == "questie" and pfQDB and pfQDB.questieDataAvailable then
+      -- Use Questie search
+      maps = pfQDB:SearchQuestieObjectID(this.id, meta)
+      pfMap:UpdateNodes()
+      pfMap:ShowMapID(pfDatabase:GetBestMap(maps))
+    elseif pfBrowser.selectState then
+      maps = pfDatabase:SearchObject(this.name, meta)
       pfMap:ShowMapID(pfDatabase:GetBestMap(maps))
     else
-      local maps = pfDatabase:SearchObjectID(this.id, meta)
+      maps = pfDatabase:SearchObjectID(this.id, meta)
       pfMap:UpdateNodes()
       pfMap:ShowMapID(pfDatabase:GetBestMap(maps))
     end
@@ -364,11 +394,30 @@ local function ResultButtonReload(self)
     self.name = pfDB[self.btype]["loc"][self.id]["T"]
     self.text:SetText("|cffffcc00|Hquest:0:0:0:0|h[" .. self.name .. "]|h|r")
   elseif self.btype == "units" or self.btype == "objects" then
-    local level = pfDB[self.btype]["data"][self.id] and pfDB[self.btype]["data"][self.id]["lvl"] or ""
-    if level and level ~= "" then level = " (" .. level .. ")" end
-    self.text:SetText(self.name .. "|cffaaaaaa" .. level)
+    -- Get data from selected database source
+    local data, level
+    if pfBrowser.dbSource == "questie" and pfQDB and pfQDB.questieDataAvailable then
+      if self.btype == "units" then
+        data = pfQDB:GetQuestieNPCData(self.id)
+      else
+        data = pfQDB:GetQuestieObjectData(self.id)
+      end
+      level = data and data.lvl or ""
+    else
+      data = pfDB[self.btype]["data"][self.id]
+      level = data and data.lvl or ""
+    end
 
-    if pfDB[self.btype]["data"][self.id] and pfDB[self.btype]["data"][self.id]["coords"] then
+    if level and level ~= "" then level = " (" .. level .. ")" end
+
+    -- Add database indicator when viewing Questie
+    local dbIndicator = ""
+    if pfBrowser.dbSource == "questie" then
+      dbIndicator = "|cffff9900[Q]|r "
+    end
+    self.text:SetText(dbIndicator .. self.name .. "|cffaaaaaa" .. level)
+
+    if data and data.coords then
       self.text:SetTextColor(1,1,1)
     else
       self.text:SetTextColor(.5,.5,.5)
@@ -523,7 +572,7 @@ end
 local function CreateBrowseWindow(fname, name, parent, anchor, x, y)
   if not parent.tabs then parent.tabs = {} end
   parent.tabs[fname] = pfUI.api.CreateScrollFrame(name, parent)
-  parent.tabs[fname]:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -65)
+  parent.tabs[fname]:SetPoint("TOPLEFT", parent, "TOPLEFT", 10, -85)
   parent.tabs[fname]:SetPoint("BOTTOMRIGHT", parent, "BOTTOMRIGHT", -10, 45)
   parent.tabs[fname]:Hide()
   parent.tabs[fname].buttons = { }
@@ -796,7 +845,24 @@ pfBrowser.input:SetScript("OnTextChanged", function()
   for _, caption in ipairs({"Units","Objects","Items","Quests"}) do
     local searchType = strlower(caption)
 
-    local data = (strlen(text) >= 3 or custom) and pfDatabase:GetIDByName(text, searchType, true, custom) or pfBrowser_fav[searchType]
+    local data
+    if strlen(text) >= 3 or custom then
+      -- Check which database to search
+      if pfBrowser.dbSource == "questie" and pfQDB and pfQDB.questieDataAvailable then
+        -- Search Questie database (only units and objects supported)
+        if searchType == "units" or searchType == "objects" then
+          data = pfQDB:GetQuestieIDByName(text, searchType, true)
+        else
+          -- Items and Quests not in Questie data, show empty
+          data = {}
+        end
+      else
+        -- Search pfQuest database (default)
+        data = pfDatabase:GetIDByName(text, searchType, true, custom)
+      end
+    else
+      data = pfBrowser_fav[searchType]
+    end
 
     local i = 0
     for id, text in pairs(data) do
@@ -814,3 +880,105 @@ pfBrowser.input:SetScript("OnTextChanged", function()
 end)
 
 pfUI.api.CreateBackdrop(pfBrowser.input, nil, true)
+
+-- Database source toggle (pfQuest / Questie)
+pfBrowser.dbSource = "pfquest"  -- Current database source for browsing
+
+-- Database toggle frame
+pfBrowser.dbToggle = CreateFrame("Frame", "pfQuestBrowserDBToggle", pfBrowser)
+pfBrowser.dbToggle:SetPoint("TOPLEFT", pfBrowser, "TOPLEFT", 5, -57)
+pfBrowser.dbToggle:SetPoint("TOPRIGHT", pfBrowser, "TOPRIGHT", -5, -57)
+pfBrowser.dbToggle:SetHeight(22)
+
+-- Label
+pfBrowser.dbToggle.label = pfBrowser.dbToggle:CreateFontString(nil, "OVERLAY")
+pfBrowser.dbToggle.label:SetFont(pfUI.font_default, pfUI_config.global.font_size, "OUTLINE")
+pfBrowser.dbToggle.label:SetPoint("LEFT", 5, 0)
+pfBrowser.dbToggle.label:SetText("Database:")
+pfBrowser.dbToggle.label:SetTextColor(0.8, 0.8, 0.8, 1)
+
+-- pfQuest radio button
+pfBrowser.dbToggle.pfRadio = CreateFrame("CheckButton", "pfBrowserPfRadio", pfBrowser.dbToggle, "UIRadioButtonTemplate")
+pfBrowser.dbToggle.pfRadio:SetPoint("LEFT", pfBrowser.dbToggle.label, "RIGHT", 10, 0)
+pfBrowser.dbToggle.pfRadio:SetChecked(true)
+pfBrowser.dbToggle.pfRadio:SetScript("OnClick", function()
+  pfBrowser.dbSource = "pfquest"
+  pfBrowser.dbToggle.pfRadio:SetChecked(true)
+  pfBrowser.dbToggle.questieRadio:SetChecked(false)
+  -- Refresh search results
+  pfBrowser.input:GetScript("OnTextChanged")()
+end)
+
+pfBrowser.dbToggle.pfLabel = pfBrowser.dbToggle:CreateFontString(nil, "OVERLAY")
+pfBrowser.dbToggle.pfLabel:SetFont(pfUI.font_default, pfUI_config.global.font_size, "OUTLINE")
+pfBrowser.dbToggle.pfLabel:SetPoint("LEFT", pfBrowser.dbToggle.pfRadio, "RIGHT", 2, 0)
+pfBrowser.dbToggle.pfLabel:SetText("pfQuest")
+pfBrowser.dbToggle.pfLabel:SetTextColor(0.2, 1, 0.8, 1)
+
+-- Questie radio button
+pfBrowser.dbToggle.questieRadio = CreateFrame("CheckButton", "pfBrowserQuestieRadio", pfBrowser.dbToggle, "UIRadioButtonTemplate")
+pfBrowser.dbToggle.questieRadio:SetPoint("LEFT", pfBrowser.dbToggle.pfLabel, "RIGHT", 15, 0)
+pfBrowser.dbToggle.questieRadio:SetChecked(false)
+pfBrowser.dbToggle.questieRadio:SetScript("OnClick", function()
+  if pfQDB and pfQDB.questieDataAvailable then
+    pfBrowser.dbSource = "questie"
+    pfBrowser.dbToggle.pfRadio:SetChecked(false)
+    pfBrowser.dbToggle.questieRadio:SetChecked(true)
+    -- Refresh search results
+    pfBrowser.input:GetScript("OnTextChanged")()
+  else
+    -- Questie data not available, revert
+    pfBrowser.dbToggle.questieRadio:SetChecked(false)
+    pfBrowser.dbToggle.pfRadio:SetChecked(true)
+    DEFAULT_CHAT_FRAME:AddMessage("|cff33ffccpfQuest|r: Questie database not available.")
+  end
+end)
+
+pfBrowser.dbToggle.questieLabel = pfBrowser.dbToggle:CreateFontString(nil, "OVERLAY")
+pfBrowser.dbToggle.questieLabel:SetFont(pfUI.font_default, pfUI_config.global.font_size, "OUTLINE")
+pfBrowser.dbToggle.questieLabel:SetPoint("LEFT", pfBrowser.dbToggle.questieRadio, "RIGHT", 2, 0)
+pfBrowser.dbToggle.questieLabel:SetText("Questie")
+pfBrowser.dbToggle.questieLabel:SetTextColor(1, 0.6, 0.2, 1)
+
+-- Compare button
+pfBrowser.compareBtn = CreateFrame("Button", "pfBrowserCompareBtn", pfBrowser.dbToggle)
+pfBrowser.compareBtn:SetPoint("RIGHT", pfBrowser.dbToggle, "RIGHT", -5, 0)
+pfBrowser.compareBtn:SetWidth(70)
+pfBrowser.compareBtn:SetHeight(18)
+pfBrowser.compareBtn:SetBackdrop({
+  bgFile = "Interface\\Buttons\\WHITE8X8",
+  edgeFile = "Interface\\Buttons\\WHITE8X8",
+  tile = false, tileSize = 1, edgeSize = 1,
+})
+pfBrowser.compareBtn:SetBackdropColor(0.15, 0.15, 0.15, 1)
+pfBrowser.compareBtn:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+
+pfBrowser.compareBtn.text = pfBrowser.compareBtn:CreateFontString(nil, "OVERLAY")
+pfBrowser.compareBtn.text:SetFont(pfUI.font_default, pfUI_config.global.font_size - 1, "OUTLINE")
+pfBrowser.compareBtn.text:SetPoint("CENTER", 0, 0)
+pfBrowser.compareBtn.text:SetText("Compare")
+
+pfBrowser.compareBtn:SetScript("OnClick", function()
+  if pfQDB and pfQDB.ShowComparePanel then
+    -- Try to get currently focused result button
+    local focus = GetMouseFocus()
+    if focus and focus.pfResultButton and focus.id and (focus.btype == "units" or focus.btype == "objects") then
+      pfQDB:ShowComparePanel(focus.id, focus.btype)
+    else
+      pfQDB:ShowComparePanel()
+    end
+  else
+    DEFAULT_CHAT_FRAME:AddMessage("|cff33ffccpfQuest|r: Compare panel not yet implemented.")
+  end
+end)
+pfBrowser.compareBtn:SetScript("OnEnter", function()
+  this:SetBackdropColor(0.25, 0.25, 0.25, 1)
+end)
+pfBrowser.compareBtn:SetScript("OnLeave", function()
+  this:SetBackdropColor(0.15, 0.15, 0.15, 1)
+end)
+
+EnableTooltips(pfBrowser.compareBtn, {
+  "Compare Databases",
+  "Open the database comparison panel",
+})

@@ -232,8 +232,10 @@ function pfMap:HasMinimap()
 end
 
 function pfMap.tooltip:GetColor(min, max)
-  local max = max or 1
-  local min = min or max or 1
+  -- Convert to numbers first (strfind captures are strings) and ensure valid values
+  max = tonumber(max) or 0
+  min = tonumber(min) or 0
+  if max <= 0 then max = 1 end
 
   local perc = min / max
   local r1, g1, b1, r2, g2, b2

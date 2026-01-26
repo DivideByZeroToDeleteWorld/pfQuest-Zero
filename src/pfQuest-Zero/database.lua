@@ -698,7 +698,22 @@ function pfDatabase:SearchMobID(id, meta, maps, prio)
   local maps = maps or {}
   local prio = prio or 1
 
-  for _, data in pairs(units[id]["coords"]) do
+  -- Get coordinates, optionally filtered by database preference
+  local coords = units[id]["coords"]
+  if pfQDB and pfQDB.initialized and pfQDB.questieDataAvailable then
+    coords = pfQDB:FilterCoordsByPreference(coords, id, "unit")
+  end
+
+  -- Get level info (may come from Questie if using Questie data)
+  local unitLevel = units[id]["lvl"]
+  if pfQDB and pfQDB.initialized and pfQDB.questieDataAvailable then
+    local questieData = pfQDB.cache.units[id]
+    if questieData and questieData.lvl then
+      unitLevel = questieData.lvl
+    end
+  end
+
+  for _, data in pairs(coords) do
     local x, y, zone, respawn = unpack(data)
 
     if zone > 0 then
@@ -712,7 +727,7 @@ function pfDatabase:SearchMobID(id, meta, maps, prio)
       meta["x"]     = x
       meta["y"]     = y
 
-      meta["level"] = units[id]["lvl"] or UNKNOWN
+      meta["level"] = unitLevel or UNKNOWN
       meta["spawntype"] = pfQuest_Loc["Unit"]
       meta["respawn"] = respawn > 0 and SecondsToTime(respawn)
 
@@ -925,7 +940,13 @@ function pfDatabase:SearchObjectID(id, meta, maps, prio)
   local maps = maps or {}
   local prio = prio or 1
 
-  for _, data in pairs(objects[id]["coords"]) do
+  -- Get coordinates, optionally filtered by database preference
+  local coords = objects[id]["coords"]
+  if pfQDB and pfQDB.initialized and pfQDB.questieDataAvailable then
+    coords = pfQDB:FilterCoordsByPreference(coords, id, "object")
+  end
+
+  for _, data in pairs(coords) do
     local x, y, zone, respawn = unpack(data)
 
     if zone > 0 then

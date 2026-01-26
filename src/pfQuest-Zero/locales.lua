@@ -1,5 +1,8 @@
 local locales = {
   ["enUS"] = {
+    ["Database"] = "Database",
+    ["Database Choices"] = "Database Choices",
+    ["Database Settings"] = "Database Settings",
     ["Tracker"] = "Tracker",
     ["Tracker Height"] = "Tracker Height",
     ["Tracker Width"] = "Tracker Width",

@@ -573,8 +573,40 @@ do -- button panel
     b:SetWidth(panelheight-2)
     b:SetHeight(panelheight-2)
 
-    b:SetScript("OnEnter", ShowTooltip)
-    b:SetScript("OnLeave", HideTooltip)
+    b:SetScript("OnEnter", function()
+      ShowTooltip()
+      -- Hover color for right-side buttons
+      if anchor == "TOPRIGHT" and not this.isPressed then
+        this.icon:SetVertexColor(.2, 1, .8)
+      end
+    end)
+    b:SetScript("OnLeave", function()
+      HideTooltip()
+      this.isPressed = false
+      -- Reset color for right-side buttons
+      if anchor == "TOPRIGHT" then
+        this.icon:SetVertexColor(1, 1, 1)
+      end
+    end)
+    b:SetScript("OnMouseDown", function()
+      this.isPressed = true
+      -- Wild pressed color - bright orange/gold
+      this.icon:SetVertexColor(1, 0.6, 0)
+    end)
+    b:SetScript("OnMouseUp", function()
+      this.isPressed = false
+      if MouseIsOver(this) then
+        if anchor == "TOPRIGHT" then
+          this.icon:SetVertexColor(.2, 1, .8)
+        else
+          this.icon:SetVertexColor(.2, 1, .8)
+        end
+      else
+        if anchor == "TOPRIGHT" then
+          this.icon:SetVertexColor(1, 1, 1)
+        end
+      end
+    end)
 
     if anchor == "TOPLEFT" then
       table.insert(buttons, b)
@@ -704,10 +736,7 @@ do -- button panel
   tracker.btnlock:SetWidth(panelheight-2)
   tracker.btnlock:SetHeight(panelheight-2)
 
-  tracker.btnlock:SetScript("OnEnter", ShowTooltip)
-  tracker.btnlock:SetScript("OnLeave", HideTooltip)
-
-  -- Update icon based on lock state
+  -- Update icon based on lock state (defined first so it can be referenced)
   local function UpdateLockIcon()
     if pfQuest_config and pfQuest_config.lock then
       tracker.btnlock.icon:SetTexture(pfQuestConfig.path.."\\img\\lock_2")
@@ -717,6 +746,15 @@ do -- button panel
       tracker.btnlock.icon:SetVertexColor(1,1,1)
     end
   end
+
+  tracker.btnlock:SetScript("OnEnter", function()
+    ShowTooltip()
+    this.icon:SetVertexColor(.2, 1, .8)
+  end)
+  tracker.btnlock:SetScript("OnLeave", function()
+    HideTooltip()
+    UpdateLockIcon()  -- Restore proper color based on lock state
+  end)
 
   tracker.btnlock:SetScript("OnClick", function()
     pfQuest_config.lock = not pfQuest_config.lock and true or nil
