@@ -695,6 +695,11 @@ end
 function pfDatabase:SearchMobID(id, meta, maps, prio)
   if not units[id] or not units[id]["coords"] then return maps end
 
+  -- Check holiday filtering - skip if entity is bound to a non-active holiday
+  if pfQDB and pfQDB.ShouldShowEntity and not pfQDB:ShouldShowEntity("units", id) then
+    return maps or {}
+  end
+
   local maps = maps or {}
   local prio = prio or 1
 
@@ -935,6 +940,11 @@ end
 -- Adds map nodes for each and returns its map table
 function pfDatabase:SearchObjectID(id, meta, maps, prio)
   if not objects[id] or not objects[id]["coords"] then return maps end
+
+  -- Check holiday filtering - skip if entity is bound to a non-active holiday
+  if pfQDB and pfQDB.ShouldShowEntity and not pfQDB:ShouldShowEntity("objects", id) then
+    return maps or {}
+  end
 
   local skill, caption = pfDatabase:SearchObjectSkill(id)
   local maps = maps or {}

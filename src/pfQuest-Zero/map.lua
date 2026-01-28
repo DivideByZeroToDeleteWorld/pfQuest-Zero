@@ -1028,6 +1028,7 @@ function pfMap:UpdateNodes()
 end
 
 local coord_cache = {}
+local lastMapZone = nil  -- Track what zone the map is set to
 function pfMap:UpdateMinimap()
   -- check for disabled minimap nodes
   if pfQuest_config["minimapnodes"] == "0" then
@@ -1045,8 +1046,31 @@ function pfMap:UpdateMinimap()
     return
   end
 
-  -- hide nodes and skip further processing in dungeons
+  -- Get the player's actual zone
+  local realZone = GetRealZoneText()
+  local mapID = pfMap:GetMapIDByName(realZone)
+
+  -- Skip if we can't determine the zone or it has no minimap data
+  if not mapID or not minimap_sizes[mapID] then
+    for pins, pin in pairs(pfMap.mpins) do pin:Hide() end
+    return
+  end
+
+  -- Ensure map is set to current zone for accurate position
+  -- This is critical - GetPlayerMapPosition returns coords for whatever map is SET, not where player IS
+  if not WorldMapFrame:IsShown() then
+    -- Only call SetMapToCurrentZone if we need to (zone changed or map was on different zone)
+    local currentMapZone = GetCurrentMapZone()
+    if lastMapZone ~= realZone or currentMapZone == 0 then
+      SetMapToCurrentZone()
+      lastMapZone = realZone
+    end
+  end
+
+  -- Get player position - this MUST be after SetMapToCurrentZone
   local xPlayer, yPlayer = GetPlayerMapPosition("player")
+
+  -- hide nodes and skip further processing in dungeons or if position invalid
   if xPlayer == 0 and yPlayer == 0 then
     for pins, pin in pairs(pfMap.mpins) do pin:Hide() end
     return
@@ -1062,10 +1086,15 @@ function pfMap:UpdateMinimap()
 
   this.xPlayer, this.yPlayer, this.mZoom = xPlayer, yPlayer, mZoom
   local color = pfQuest_config["spawncolors"] == "1" and "spawn" or "title"
-  local mapID = pfMap:GetMapIDByName(GetRealZoneText())
   local mapZoom = minimap_zoom[minimap_indoor()][mZoom]
-  local mapWidth = minimap_sizes[mapID] and minimap_sizes[mapID][1] or 0
-  local mapHeight = minimap_sizes[mapID] and minimap_sizes[mapID][2] or 0
+  local mapWidth = minimap_sizes[mapID][1]
+  local mapHeight = minimap_sizes[mapID][2]
+
+  -- Safety check: if dimensions are zero or invalid, skip (would cause division issues)
+  if not mapWidth or not mapHeight or mapWidth <= 0 or mapHeight <= 0 then
+    for pins, pin in pairs(pfMap.mpins) do pin:Hide() end
+    return
+  end
 
   local xScale = mapZoom / mapWidth
   local yScale = mapZoom / mapHeight
@@ -1153,6 +1182,7 @@ pfMap:SetScript("OnEvent", function()
 
   -- set map to current zone when possible
   if event == "ZONE_CHANGED" or event == "MINIMAP_ZONE_CHANGED" or event == "ZONE_CHANGED_NEW_AREA" then
+    lastMapZone = nil  -- Reset tracking so minimap recalculates
     if not WorldMapFrame:IsShown() then
       SetMapToCurrentZone()
     end
@@ -1208,6 +1238,7 @@ pfMap:SetScript("OnUpdate", function()
     resetmap = true
   elseif resetmap == true then
     SetMapToCurrentZone()
+    lastMapZone = nil  -- Force minimap to re-check map state
     resetmap = nil
   end
 

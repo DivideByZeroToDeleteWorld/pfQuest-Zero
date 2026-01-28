@@ -32,6 +32,7 @@ SlashCmdList["PFDB"] = function(input, editbox)
     DEFAULT_CHAT_FRAME:AddMessage("|cff33ffcc/db|cffffffff cal status |cffcccccc - " .. "Show current calibration progress")
     DEFAULT_CHAT_FRAME:AddMessage("|cff33ffcc/pfqdb|cffffffff |cffcccccc - " .. "Open database source selector panel")
     DEFAULT_CHAT_FRAME:AddMessage("|cff33ffcc/pfcompare|cffffffff [zone] |cffcccccc - " .. "Open database compare panel")
+    DEFAULT_CHAT_FRAME:AddMessage("|cff33ffcc/pfqedit|cffffffff [type] [id] |cffcccccc - " .. "Open database editor panel")
     return
   end
 

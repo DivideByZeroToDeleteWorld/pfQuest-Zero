@@ -239,9 +239,100 @@ end
 
 panel.filterButtons = filterButtons
 
+-- Search box (below filter buttons)
+local searchBox = CreateFrame("EditBox", nil, panel)
+searchBox:SetHeight(22)
+searchBox:SetPoint("TOPLEFT", 10, -115)
+searchBox:SetPoint("TOPRIGHT", -10, -115)
+searchBox:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+searchBox:SetTextColor(0.9, 0.9, 0.9, 1)
+searchBox:SetJustifyH("LEFT")
+searchBox:SetTextInsets(22, 24, 2, 2)
+searchBox:SetAutoFocus(false)
+searchBox:SetBackdrop({
+  bgFile = "Interface\\Buttons\\WHITE8X8",
+  edgeFile = "Interface\\Buttons\\WHITE8X8",
+  tile = false, tileSize = 1, edgeSize = 1,
+  insets = { left = 0, right = 0, top = 0, bottom = 0 }
+})
+searchBox:SetBackdropColor(0.08, 0.08, 0.08, 1)
+searchBox:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+
+-- Search icon (texture)
+searchBox.icon = searchBox:CreateTexture(nil, "OVERLAY")
+searchBox.icon:SetTexture(pfQuestConfig.path.."\\img\\tracker_search")
+searchBox.icon:SetHeight(14)
+searchBox.icon:SetWidth(14)
+searchBox.icon:SetVertexColor(0.5, 0.5, 0.5)
+searchBox.icon:SetPoint("LEFT", 6, 0)
+
+-- Placeholder text
+searchBox.placeholder = searchBox:CreateFontString(nil, "OVERLAY")
+searchBox.placeholder:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+searchBox.placeholder:SetPoint("LEFT", 22, 0)
+searchBox.placeholder:SetTextColor(0.4, 0.4, 0.4, 1)
+searchBox.placeholder:SetText("Search zones...")
+
+-- Clear button
+searchBox.clear = CreateFrame("Button", nil, searchBox)
+searchBox.clear:SetSize(14, 14)
+searchBox.clear:SetPoint("RIGHT", -5, 0)
+searchBox.clear:Hide()
+
+searchBox.clear.text = searchBox.clear:CreateFontString(nil, "OVERLAY")
+searchBox.clear.text:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")
+searchBox.clear.text:SetPoint("CENTER", 0, 0)
+searchBox.clear.text:SetText("x")
+searchBox.clear.text:SetTextColor(0.6, 0.6, 0.6, 1)
+
+searchBox.clear:SetScript("OnClick", function()
+  searchBox:SetText("")
+  searchBox:ClearFocus()
+end)
+searchBox.clear:SetScript("OnEnter", function()
+  this.text:SetTextColor(1, 0.3, 0.3, 1)
+end)
+searchBox.clear:SetScript("OnLeave", function()
+  this.text:SetTextColor(0.6, 0.6, 0.6, 1)
+end)
+
+searchBox:SetScript("OnTextChanged", function()
+  local text = this:GetText()
+  if text and text ~= "" then
+    this.placeholder:Hide()
+    this.icon:Hide()
+    this.clear:Show()
+  else
+    this.placeholder:Show()
+    this.icon:Show()
+    this.clear:Hide()
+  end
+  -- Filter zone list
+  panel:UpdateZoneList()
+end)
+
+searchBox:SetScript("OnEscapePressed", function()
+  this:SetText("")
+  this:ClearFocus()
+end)
+
+searchBox:SetScript("OnEnterPressed", function()
+  this:ClearFocus()
+end)
+
+searchBox:SetScript("OnEditFocusGained", function()
+  this:SetBackdropBorderColor(0.2, 0.8, 0.6, 1)
+end)
+
+searchBox:SetScript("OnEditFocusLost", function()
+  this:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+end)
+
+panel.searchBox = searchBox
+
 -- Scroll frame for zone list (custom styled, no template)
 local scrollFrame = CreateFrame("ScrollFrame", "pfQDBSelectorScrollFrame", panel)
-scrollFrame:SetPoint("TOPLEFT", 10, -145)
+scrollFrame:SetPoint("TOPLEFT", 10, -170)
 scrollFrame:SetPoint("BOTTOMRIGHT", -18, 70)
 
 local scrollChild = CreateFrame("Frame", nil, scrollFrame)
@@ -252,7 +343,7 @@ scrollFrame:SetScrollChild(scrollChild)
 -- Scrollbar track (slim, matching config panel style)
 local scrollBar = CreateFrame("Frame", nil, panel)
 scrollBar:SetWidth(6)
-scrollBar:SetPoint("TOPRIGHT", -8, -130)
+scrollBar:SetPoint("TOPRIGHT", -8, -155)
 scrollBar:SetPoint("BOTTOMRIGHT", -8, 70)
 scrollBar:SetBackdrop({
   bgFile = "Interface\\Buttons\\WHITE8X8",
@@ -499,6 +590,7 @@ end
 function panel:GetFilteredZones()
   local zones = {}
   local expansion = nil
+  local searchText = self.searchBox and strlower(self.searchBox:GetText() or "") or ""
 
   if currentFilter == "Classic" then
     expansion = "classic"
@@ -517,6 +609,17 @@ function panel:GetFilteredZones()
     end
     -- Sort by name
     table.sort(zones, function(a, b) return a.name < b.name end)
+  end
+
+  -- Apply search filter
+  if searchText ~= "" then
+    local filteredZones = {}
+    for _, zone in ipairs(zones) do
+      if strfind(strlower(zone.name), searchText, 1, true) then
+        table.insert(filteredZones, zone)
+      end
+    end
+    zones = filteredZones
   end
 
   return zones
@@ -668,6 +771,10 @@ end
 function panel:Refresh()
   -- Clear pending choices when panel opens fresh
   pendingChoices = {}
+  -- Clear search box
+  if self.searchBox then
+    self.searchBox:SetText("")
+  end
   self:UpdateStatus()
   self:UpdateRadios()
   self:UpdateFilterButtons()
@@ -694,11 +801,11 @@ function pfQDB:HidePanel()
   panel:Hide()
 end
 
--- Add column headers (positioned below filter buttons with spacing)
+-- Add column headers (positioned below search box)
 local headerFrame = CreateFrame("Frame", nil, panel)
 headerFrame:SetHeight(20)
-headerFrame:SetPoint("TOPLEFT", 10, -120)
-headerFrame:SetPoint("TOPRIGHT", -30, -120)
+headerFrame:SetPoint("TOPLEFT", 10, -145)
+headerFrame:SetPoint("TOPRIGHT", -30, -145)
 
 local headerZone = headerFrame:CreateFontString(nil, "OVERLAY")
 headerZone:SetFont("Fonts\\FRIZQT__.TTF", 10, "OUTLINE")

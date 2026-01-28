@@ -1409,9 +1409,15 @@ local function CreateConfigEntries()
         frame.input:SetScript("OnTextChanged", function()
           pfQuest_config[this.config] = this:GetText()
 
-          -- Special handling for tracker configs (live update is fine)
+          -- Special handling for tracker configs (live update)
           if this.config == "trackerfontsize" or this.config == "trackerheight" or this.config == "trackerwidth" then
             if _G.RefreshTrackerFonts then _G.RefreshTrackerFonts() end
+            pfQuest:ResetAll()
+          end
+
+          -- Live update for border width
+          if this.config == "trackerborderwidth" then
+            if _G.UpdateTrackerColors then _G.UpdateTrackerColors() end
             pfQuest:ResetAll()
           end
         end)

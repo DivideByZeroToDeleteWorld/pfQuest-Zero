@@ -10,6 +10,7 @@
   <Include file="..\database.lua"/>
   <Include file="..\dbselector-panel.lua"/>
   <Include file="..\compare-panel.lua"/>
+  <Include file="..\editor-panel.lua"/>
   <Include file="..\icons.lua"/>
   <Include file="..\map.lua"/>
   <Include file="..\quest.lua"/>

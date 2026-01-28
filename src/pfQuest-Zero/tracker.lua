@@ -1731,8 +1731,9 @@ function tracker.ButtonEvent(self)
   tracker.scrollchild:SetWidth(trackerWidth)
   tracker.scrollchild:SetHeight(height + 5)
 
-  -- Calculate total content height (panel + quest buttons)
-  local totalContentHeight = panelheight + height
+  -- Calculate total content height (panel + quest buttons + bottom padding)
+  local bottomPadding = 2  -- Small gap so text doesn't touch frame bottom
+  local totalContentHeight = panelheight + height + bottomPadding
 
   -- Set tracker height: grow with content but cap at max height
   local actualTrackerHeight = min(totalContentHeight, maxTrackerHeight)

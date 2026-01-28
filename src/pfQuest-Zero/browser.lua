@@ -527,10 +527,20 @@ end
 
 local function SelectView(view)
   for id, frame in pairs(pfBrowser.tabs) do
-    pfUI.api.SetButtonFontColor(frame.button, 1,1,1,.7)
+    -- Reset all tab buttons to inactive state
+    frame.button:SetBackdropColor(0.12, 0.12, 0.12, 1)
+    frame.button:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+    if frame.button.text then
+      frame.button.text:SetTextColor(0.7, 0.7, 0.7, 1)
+    end
     frame:Hide()
   end
-  pfUI.api.SetButtonFontColor(view.button, .2,1,.8,1)
+  -- Highlight selected tab
+  view.button:SetBackdropColor(0.1, 0.35, 0.3, 1)
+  view.button:SetBackdropBorderColor(0.2, 0.7, 0.6, 1)
+  if view.button.text then
+    view.button.text:SetTextColor(0.2, 1, 0.8, 1)
+  end
   view.button:Hide()
   view.button:Show()
   view:Show()
@@ -558,7 +568,13 @@ local function RefreshView(i, key, caption)
     pfBrowser.tabs[key].list.warn:Hide()
   end
 
-  pfBrowser.tabs[key].button:SetText(pfQuest_Loc[caption] .. " " .. "|cffaaaaaa(" .. (i >= search_limit and "*" or i) .. ")")
+  -- Update button text via the fontstring
+  local buttonText = pfQuest_Loc[caption] .. " " .. "|cffaaaaaa(" .. (i >= search_limit and "*" or i) .. ")"
+  if pfBrowser.tabs[key].button.text then
+    pfBrowser.tabs[key].button.text:SetText(buttonText)
+  else
+    pfBrowser.tabs[key].button:SetText(buttonText)
+  end
   for j=i+1, table.getn(pfBrowser.tabs[key].buttons) do
     if pfBrowser.tabs[key].buttons[j] then
       pfBrowser.tabs[key].buttons[j]:Hide()
@@ -577,18 +593,43 @@ local function CreateBrowseWindow(fname, name, parent, anchor, x, y)
   parent.tabs[fname]:Hide()
   parent.tabs[fname].buttons = { }
 
+  -- Dark styled backdrop for scroll area
   parent.tabs[fname].backdrop = CreateFrame("Frame", name .. "Backdrop", parent.tabs[fname])
   parent.tabs[fname].backdrop:SetFrameLevel(1)
   parent.tabs[fname].backdrop:SetPoint("TOPLEFT", parent.tabs[fname], "TOPLEFT", -5, 5)
   parent.tabs[fname].backdrop:SetPoint("BOTTOMRIGHT", parent.tabs[fname], "BOTTOMRIGHT", 5, -5)
-  pfUI.api.CreateBackdrop(parent.tabs[fname].backdrop, nil, true)
+  parent.tabs[fname].backdrop:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    edgeFile = "Interface\\Buttons\\WHITE8X8",
+    tile = false, tileSize = 1, edgeSize = 1,
+  })
+  parent.tabs[fname].backdrop:SetBackdropColor(0.05, 0.05, 0.05, 0.9)
+  parent.tabs[fname].backdrop:SetBackdropBorderColor(0.25, 0.25, 0.25, 1)
 
+  -- Dark styled tab button
   parent.tabs[fname].button = CreateFrame("Button", name .. "Button", parent)
   parent.tabs[fname].button:SetPoint(anchor, x, y)
   parent.tabs[fname].button:SetWidth(153)
   parent.tabs[fname].button:SetHeight(30)
+  parent.tabs[fname].button:SetBackdrop({
+    bgFile = "Interface\\Buttons\\WHITE8X8",
+    edgeFile = "Interface\\Buttons\\WHITE8X8",
+    tile = false, tileSize = 1, edgeSize = 1,
+  })
+  parent.tabs[fname].button:SetBackdropColor(0.12, 0.12, 0.12, 1)
+  parent.tabs[fname].button:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+  parent.tabs[fname].button.text = parent.tabs[fname].button:CreateFontString(nil, "OVERLAY")
+  parent.tabs[fname].button.text:SetFont(pfUI.font_default, pfUI_config.global.font_size, "OUTLINE")
+  parent.tabs[fname].button.text:SetPoint("CENTER", 0, 0)
+  parent.tabs[fname].button.text:SetTextColor(0.7, 0.7, 0.7, 1)
   parent.tabs[fname].button:SetScript("OnClick", function()
     SelectView(parent.tabs[fname])
+  end)
+  parent.tabs[fname].button:SetScript("OnEnter", function()
+    this:SetBackdropColor(0.2, 0.2, 0.2, 1)
+  end)
+  parent.tabs[fname].button:SetScript("OnLeave", function()
+    this:SetBackdropColor(0.12, 0.12, 0.12, 1)
   end)
 
   if fname == "units" then
@@ -613,7 +654,6 @@ local function CreateBrowseWindow(fname, name, parent, anchor, x, y)
     })
   end
 
-  pfUI.api.SkinButton(parent.tabs[fname].button)
   parent.tabs[fname].list = pfUI.api.CreateScrollChild(name .. "Scroll", parent.tabs[fname])
   parent.tabs[fname].list:SetWidth(600)
 end
@@ -686,7 +726,15 @@ pfBrowser:SetScript("OnUpdate", function()
   end
 end)
 
-pfUI.api.CreateBackdrop(pfBrowser, nil, true, 0.75)
+-- Custom dark backdrop (matching Editor/Compare panels)
+pfBrowser:SetBackdrop({
+  bgFile = "Interface\\Buttons\\WHITE8X8",
+  edgeFile = "Interface\\Buttons\\WHITE8X8",
+  tile = false, tileSize = 1, edgeSize = 1,
+  insets = { left = 0, right = 0, top = 0, bottom = 0 }
+})
+pfBrowser:SetBackdropColor(0.08, 0.08, 0.08, 0.95)
+pfBrowser:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
 table.insert(UISpecialFrames, "pfQuestBrowser")
 
 pfBrowser.title = pfBrowser:CreateFontString("Status", "LOW", "GameFontNormal")
@@ -694,31 +742,49 @@ pfBrowser.title:SetFontObject(GameFontWhite)
 pfBrowser.title:SetPoint("TOP", pfBrowser, "TOP", 0, -8)
 pfBrowser.title:SetJustifyH("LEFT")
 pfBrowser.title:SetFont(pfUI.font_default, 14)
-pfBrowser.title:SetText("|cff33ffccpf|rQuest")
+pfBrowser.title:SetText("|cff33ffccpf|rQuest Database Browser")
 
 pfBrowser.close = CreateFrame("Button", "pfQuestBrowserClose", pfBrowser)
-pfBrowser.close:SetPoint("TOPRIGHT", -5, -5)
+pfBrowser.close:SetPoint("TOPRIGHT", -4, -4)
 pfBrowser.close:SetHeight(20)
 pfBrowser.close:SetWidth(20)
-pfBrowser.close.texture = pfBrowser.close:CreateTexture("pfQuestionDialogCloseTex")
-pfBrowser.close.texture:SetTexture(pfQuestConfig.path.."\\compat\\close")
-pfBrowser.close.texture:ClearAllPoints()
-pfBrowser.close.texture:SetVertexColor(1,.25,.25,1)
-pfBrowser.close.texture:SetPoint("TOPLEFT", pfBrowser.close, "TOPLEFT", 4, -4)
-pfBrowser.close.texture:SetPoint("BOTTOMRIGHT", pfBrowser.close, "BOTTOMRIGHT", -4, 4)
+pfBrowser.close:SetBackdrop({
+  bgFile = "Interface\\Buttons\\WHITE8X8",
+  edgeFile = "Interface\\Buttons\\WHITE8X8",
+  tile = false, tileSize = 1, edgeSize = 1,
+})
+pfBrowser.close:SetBackdropColor(0.3, 0.1, 0.1, 1)
+pfBrowser.close:SetBackdropBorderColor(0.4, 0.2, 0.2, 1)
+pfBrowser.close.text = pfBrowser.close:CreateFontString(nil, "OVERLAY")
+pfBrowser.close.text:SetFont("Fonts\\FRIZQT__.TTF", 12, "OUTLINE")
+pfBrowser.close.text:SetPoint("CENTER", 0, 0)
+pfBrowser.close.text:SetText("X")
+pfBrowser.close.text:SetTextColor(1, 0.3, 0.3, 1)
 pfBrowser.close:SetScript("OnClick", function()
   this:GetParent():Hide()
+end)
+pfBrowser.close:SetScript("OnEnter", function()
+  this:SetBackdropColor(0.5, 0.1, 0.1, 1)
+end)
+pfBrowser.close:SetScript("OnLeave", function()
+  this:SetBackdropColor(0.3, 0.1, 0.1, 1)
 end)
 EnableTooltips(pfBrowser.close, {
   pfQuest_Loc["Close"],
   pfQuest_Loc["Hide browser window"],
 })
-pfUI.api.SkinButton(pfBrowser.close, 1, .5, .5)
 
 pfBrowser.journal = CreateFrame("Button", "pfQuestJournalOpen", pfBrowser)
-pfBrowser.journal:SetPoint("TOPRIGHT", -30, -5)
+pfBrowser.journal:SetPoint("TOPRIGHT", -30, -4)
 pfBrowser.journal:SetHeight(20)
 pfBrowser.journal:SetWidth(20)
+pfBrowser.journal:SetBackdrop({
+  bgFile = "Interface\\Buttons\\WHITE8X8",
+  edgeFile = "Interface\\Buttons\\WHITE8X8",
+  tile = false, tileSize = 1, edgeSize = 1,
+})
+pfBrowser.journal:SetBackdropColor(0.15, 0.15, 0.15, 1)
+pfBrowser.journal:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
 pfBrowser.journal.texture = pfBrowser.journal:CreateTexture("pfQuestionDialogCloseTex")
 pfBrowser.journal.texture:SetTexture(pfQuestConfig.path.."\\img\\tracker_quests")
 pfBrowser.journal.texture:ClearAllPoints()
@@ -727,18 +793,36 @@ pfBrowser.journal.texture:SetPoint("BOTTOMRIGHT", pfBrowser.journal, "BOTTOMRIGH
 pfBrowser.journal:SetScript("OnClick", function()
   if pfJournal:IsShown() then pfJournal:Hide() else pfJournal:Show() end
 end)
+pfBrowser.journal:SetScript("OnEnter", function()
+  this:SetBackdropColor(0.25, 0.25, 0.25, 1)
+end)
+pfBrowser.journal:SetScript("OnLeave", function()
+  this:SetBackdropColor(0.15, 0.15, 0.15, 1)
+end)
 EnableTooltips(pfBrowser.journal, {
   pfQuest_Loc["Journal"],
   pfQuest_Loc["Toggle completed quest browser"],
 })
-pfUI.api.SkinButton(pfBrowser.journal)
 
 pfBrowser.clean = CreateFrame("Button", "pfQuestBrowserClean", pfBrowser)
 pfBrowser.clean:SetPoint("TOPRIGHT", pfBrowser, "TOPRIGHT", -5, -30)
-pfBrowser.clean:SetPoint("BOTTOMRIGHT", pfBrowser, "TOPRIGHT", 0, -55)
+pfBrowser.clean:SetHeight(22)
+pfBrowser.clean:SetBackdrop({
+  bgFile = "Interface\\Buttons\\WHITE8X8",
+  edgeFile = "Interface\\Buttons\\WHITE8X8",
+  tile = false, tileSize = 1, edgeSize = 1,
+})
+pfBrowser.clean:SetBackdropColor(0.15, 0.15, 0.15, 1)
+pfBrowser.clean:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
 pfBrowser.clean:SetScript("OnClick", function()
   pfMap:DeleteNode("PFDB")
   pfMap:UpdateNodes()
+end)
+pfBrowser.clean:SetScript("OnEnter", function()
+  this:SetBackdropColor(0.25, 0.25, 0.25, 1)
+end)
+pfBrowser.clean:SetScript("OnLeave", function()
+  this:SetBackdropColor(0.15, 0.15, 0.15, 1)
 end)
 pfBrowser.clean.text = pfBrowser.clean:CreateFontString("Caption", "LOW", "GameFontWhite")
 pfBrowser.clean.text:SetAllPoints(pfBrowser.clean)
@@ -750,7 +834,6 @@ EnableTooltips(pfBrowser.clean, {
   pfQuest_Loc["Clean Map"],
   pfQuest_Loc["Remove all manually searched objects from the map"],
 })
-pfUI.api.SkinButton(pfBrowser.clean)
 
 CreateBrowseWindow("units", "pfQuestBrowserUnits", pfBrowser, "BOTTOMLEFT", 5, 5)
 CreateBrowseWindow("objects", "pfQuestBrowserObjects", pfBrowser, "BOTTOMLEFT", 164, 5)
@@ -819,6 +902,7 @@ pfBrowser.input:SetScript("OnEnterPressed", function() this:ClearFocus() end)
 pfBrowser.input:SetScript("OnEditFocusGained", function()
   this:HighlightText()
   this:SetFontObject("GameFontWhite")
+  this:SetBackdropBorderColor(0.2, 0.8, 0.6, 1)  -- Highlight border when focused
   this.searchIcon:SetVertexColor(1.0, 1.0, 1.0)
   if this:GetText() == pfQuest_Loc["Search"] then this:SetText("") end
   this.clearButton:Show()
@@ -827,6 +911,7 @@ end)
 pfBrowser.input:SetScript("OnEditFocusLost", function()
   this:HighlightText(0, 0)
   this:SetFontObject("GameFontDisable")
+  this:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)  -- Normal border when not focused
   this.searchIcon:SetVertexColor(0.6, 0.6, 0.6)
   if this:GetText() == "" then
     this:SetText(pfQuest_Loc["Search"])
@@ -879,23 +964,37 @@ pfBrowser.input:SetScript("OnTextChanged", function()
   end
 end)
 
-pfUI.api.CreateBackdrop(pfBrowser.input, nil, true)
+-- Dark styled search input backdrop
+pfBrowser.input:SetBackdrop({
+  bgFile = "Interface\\Buttons\\WHITE8X8",
+  edgeFile = "Interface\\Buttons\\WHITE8X8",
+  tile = false, tileSize = 1, edgeSize = 1,
+})
+pfBrowser.input:SetBackdropColor(0.1, 0.1, 0.1, 1)
+pfBrowser.input:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
 
 -- Database source toggle (pfQuest / Questie)
 pfBrowser.dbSource = "pfquest"  -- Current database source for browsing
 
--- Database toggle frame
+-- Database toggle frame with subtle background
 pfBrowser.dbToggle = CreateFrame("Frame", "pfQuestBrowserDBToggle", pfBrowser)
 pfBrowser.dbToggle:SetPoint("TOPLEFT", pfBrowser, "TOPLEFT", 5, -57)
 pfBrowser.dbToggle:SetPoint("TOPRIGHT", pfBrowser, "TOPRIGHT", -5, -57)
 pfBrowser.dbToggle:SetHeight(22)
+pfBrowser.dbToggle:SetBackdrop({
+  bgFile = "Interface\\Buttons\\WHITE8X8",
+  edgeFile = "Interface\\Buttons\\WHITE8X8",
+  tile = false, tileSize = 1, edgeSize = 1,
+})
+pfBrowser.dbToggle:SetBackdropColor(0.06, 0.06, 0.06, 0.8)
+pfBrowser.dbToggle:SetBackdropBorderColor(0.2, 0.2, 0.2, 0.5)
 
 -- Label
 pfBrowser.dbToggle.label = pfBrowser.dbToggle:CreateFontString(nil, "OVERLAY")
 pfBrowser.dbToggle.label:SetFont(pfUI.font_default, pfUI_config.global.font_size, "OUTLINE")
 pfBrowser.dbToggle.label:SetPoint("LEFT", 5, 0)
 pfBrowser.dbToggle.label:SetText("Database:")
-pfBrowser.dbToggle.label:SetTextColor(0.8, 0.8, 0.8, 1)
+pfBrowser.dbToggle.label:SetTextColor(0.7, 0.7, 0.7, 1)
 
 -- pfQuest radio button
 pfBrowser.dbToggle.pfRadio = CreateFrame("CheckButton", "pfBrowserPfRadio", pfBrowser.dbToggle, "UIRadioButtonTemplate")
@@ -940,10 +1039,53 @@ pfBrowser.dbToggle.questieLabel:SetPoint("LEFT", pfBrowser.dbToggle.questieRadio
 pfBrowser.dbToggle.questieLabel:SetText("Questie")
 pfBrowser.dbToggle.questieLabel:SetTextColor(1, 0.6, 0.2, 1)
 
+-- Editor button
+pfBrowser.editorBtn = CreateFrame("Button", "pfBrowserEditorBtn", pfBrowser.dbToggle)
+pfBrowser.editorBtn:SetPoint("RIGHT", pfBrowser.dbToggle, "RIGHT", -5, 0)
+pfBrowser.editorBtn:SetWidth(50)
+pfBrowser.editorBtn:SetHeight(18)
+pfBrowser.editorBtn:SetBackdrop({
+  bgFile = "Interface\\Buttons\\WHITE8X8",
+  edgeFile = "Interface\\Buttons\\WHITE8X8",
+  tile = false, tileSize = 1, edgeSize = 1,
+})
+pfBrowser.editorBtn:SetBackdropColor(0.15, 0.15, 0.15, 1)
+pfBrowser.editorBtn:SetBackdropBorderColor(0.3, 0.3, 0.3, 1)
+
+pfBrowser.editorBtn.text = pfBrowser.editorBtn:CreateFontString(nil, "OVERLAY")
+pfBrowser.editorBtn.text:SetFont(pfUI.font_default, pfUI_config.global.font_size - 1, "OUTLINE")
+pfBrowser.editorBtn.text:SetPoint("CENTER", 0, 0)
+pfBrowser.editorBtn.text:SetText("Editor")
+
+pfBrowser.editorBtn:SetScript("OnClick", function()
+  if pfQDB and pfQDB.ShowEditorPanel then
+    -- Try to get currently focused result button
+    local focus = GetMouseFocus()
+    if focus and focus.pfResultButton and focus.id and (focus.btype == "units" or focus.btype == "objects") then
+      pfQDB:ShowEditorPanel(focus.id, focus.btype, pfBrowser.dbSource or "pfquest")
+    else
+      pfQDB:ShowEditorPanel(nil, nil, pfBrowser.dbSource or "pfquest")
+    end
+  else
+    DEFAULT_CHAT_FRAME:AddMessage("|cff33ffccpfQuest|r: Editor panel not available.")
+  end
+end)
+pfBrowser.editorBtn:SetScript("OnEnter", function()
+  this:SetBackdropColor(0.25, 0.25, 0.25, 1)
+end)
+pfBrowser.editorBtn:SetScript("OnLeave", function()
+  this:SetBackdropColor(0.15, 0.15, 0.15, 1)
+end)
+
+EnableTooltips(pfBrowser.editorBtn, {
+  "Database Editor",
+  "Edit database entries (units/objects)",
+})
+
 -- Compare button
 pfBrowser.compareBtn = CreateFrame("Button", "pfBrowserCompareBtn", pfBrowser.dbToggle)
-pfBrowser.compareBtn:SetPoint("RIGHT", pfBrowser.dbToggle, "RIGHT", -5, 0)
-pfBrowser.compareBtn:SetWidth(70)
+pfBrowser.compareBtn:SetPoint("RIGHT", pfBrowser.editorBtn, "LEFT", -5, 0)
+pfBrowser.compareBtn:SetWidth(60)
 pfBrowser.compareBtn:SetHeight(18)
 pfBrowser.compareBtn:SetBackdrop({
   bgFile = "Interface\\Buttons\\WHITE8X8",
@@ -968,7 +1110,7 @@ pfBrowser.compareBtn:SetScript("OnClick", function()
       pfQDB:ShowComparePanel()
     end
   else
-    DEFAULT_CHAT_FRAME:AddMessage("|cff33ffccpfQuest|r: Compare panel not yet implemented.")
+    DEFAULT_CHAT_FRAME:AddMessage("|cff33ffccpfQuest|r: Compare panel not available.")
   end
 end)
 pfBrowser.compareBtn:SetScript("OnEnter", function()
