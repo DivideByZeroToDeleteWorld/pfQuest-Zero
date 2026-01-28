@@ -407,6 +407,15 @@ function pfMap:GetMapIDByName(search)
       return id
     end
   end
+
+  -- Fall back to pfQDB zone data for WotLK zones not in pfDB
+  if pfQDB and pfQDB.zones and pfQDB.zones.info then
+    for id, info in pairs(pfQDB.zones.info) do
+      if info.name == search then
+        return id
+      end
+    end
+  end
 end
 
 function pfMap:ShowMapID(map)

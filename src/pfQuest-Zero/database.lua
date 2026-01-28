@@ -3,6 +3,39 @@ local compat = pfQuestCompat
 
 pfDatabase = { icons = {} }
 
+-- Diagnostic trace log for debugging the data pipeline
+-- Enabled by /db debug on, entries recorded during quest processing
+pfDatabase.trace = {
+  enabled = false,
+  log = {},        -- array of {type, id, name, reason, detail, source}
+  maxEntries = 5000,
+  context = "general",  -- current pipeline context: "general", "tracking", "quest"
+}
+
+function pfDatabase:TraceLog(entryType, id, name, reason, detail)
+  -- Auto-enable tracing if debug mode is on (persisted in SavedVariables)
+  if not self.trace.enabled then
+    if pfQuest_config and pfQuest_config.debug then
+      self.trace.enabled = true
+    else
+      return
+    end
+  end
+  if table.getn(self.trace.log) >= self.trace.maxEntries then return end
+  table.insert(self.trace.log, {
+    type = entryType,  -- "unit", "object", "quest", "item"
+    id = id,
+    name = name or "",
+    reason = reason,   -- "no_data", "holiday", "complete", "obj_done", "no_name_match", "zone_zero", "added", etc.
+    detail = detail or "",
+    source = self.trace.context,  -- "general", "tracking", "quest"
+  })
+end
+
+function pfDatabase:TraceClear()
+  self.trace.log = {}
+end
+
 local loc = GetLocale()
 local dbs = { "items", "quests", "quests-itemreq", "objects", "units", "zones", "professions", "areatrigger", "refloot" }
 local noloc = { items = true, quests = true, objects = true, units = true }
@@ -616,6 +649,19 @@ function pfDatabase:GetIDByName(name, db, partial, server)
       end
     end
   end
+
+  -- Also search Questie database for units/objects (covers WotLK data)
+  if pfQDB and pfQDB.initialized and pfQDB.questieDataAvailable and pfQDB.GetQuestieIDByName then
+    if db == "units" or db == "objects" then
+      local questieResults = pfQDB:GetQuestieIDByName(name, db, partial)
+      for id, loc in pairs(questieResults) do
+        if not ret[id] then  -- Don't overwrite pfQuest entries
+          ret[id] = loc
+        end
+      end
+    end
+  end
+
   return ret
 end
 
@@ -633,6 +679,24 @@ function pfDatabase:GetIDByIDPart(idPart, db)
       ret[id] = loc
     end
   end
+
+  -- Also search Questie database by ID (covers WotLK data)
+  if pfQDB and pfQDB.initialized and pfQDB.questieDataAvailable then
+    if db == "units" or db == "objects" then
+      local locKey = db == "units" and "units_loc" or "objects_loc"
+      local expansions = { "wotlk", "tbc", "classic" }
+      for _, exp in ipairs(expansions) do
+        if pfQDB.questie[exp] and pfQDB.questie[exp][locKey] then
+          for id, loc in pairs(pfQDB.questie[exp][locKey]) do
+            if idPart and loc and strfind(tostring(id), idPart) and not ret[id] then
+              ret[id] = loc
+            end
+          end
+        end
+      end
+    end
+  end
+
   return ret
 end
 
@@ -693,44 +757,84 @@ end
 -- Scans for all mobs with a specified ID
 -- Adds map nodes for each and returns its map table
 function pfDatabase:SearchMobID(id, meta, maps, prio)
-  if not units[id] or not units[id]["coords"] then return maps end
+  -- Check pfQuest DB first, fall back to Questie for WotLK/missing units
+  local unitData = units[id]
+  local questieData = nil
+  local usingQuestie = false
+
+  if not unitData or not unitData["coords"] then
+    -- pfQuest doesn't have this unit - try Questie
+    if pfQDB and pfQDB.initialized and pfQDB.questieDataAvailable then
+      questieData = pfQDB:GetQuestieNPCData(id)
+      if questieData and questieData.coords then
+        usingQuestie = true
+      else
+        pfDatabase:TraceLog("unit", id, nil, "no_data", "Not in pfDB or Questie")
+        return maps  -- Neither database has this unit
+      end
+    else
+      pfDatabase:TraceLog("unit", id, nil, "no_data", "Not in pfDB, Questie unavailable")
+      return maps  -- No Questie available and pfQuest doesn't have it
+    end
+  end
 
   -- Check holiday filtering - skip if entity is bound to a non-active holiday
   if pfQDB and pfQDB.ShouldShowEntity and not pfQDB:ShouldShowEntity("units", id) then
+    pfDatabase:TraceLog("unit", id, nil, "holiday", "Filtered by holiday binding")
     return maps or {}
   end
 
   local maps = maps or {}
   local prio = prio or 1
 
-  -- Get coordinates, optionally filtered by database preference
-  local coords = units[id]["coords"]
-  if pfQDB and pfQDB.initialized and pfQDB.questieDataAvailable then
-    coords = pfQDB:FilterCoordsByPreference(coords, id, "unit")
-  end
-
-  -- Get level info (may come from Questie if using Questie data)
-  local unitLevel = units[id]["lvl"]
-  if pfQDB and pfQDB.initialized and pfQDB.questieDataAvailable then
-    local questieData = pfQDB.cache.units[id]
-    if questieData and questieData.lvl then
-      unitLevel = questieData.lvl
+  -- Get coordinates based on data source
+  local coords
+  if usingQuestie then
+    coords = questieData.coords
+  else
+    coords = unitData["coords"]
+    -- Optionally filter by database preference (may swap to Questie for some zones)
+    if pfQDB and pfQDB.initialized and pfQDB.questieDataAvailable then
+      coords = pfQDB:FilterCoordsByPreference(coords, id, "unit")
     end
   end
 
+  -- Get level info
+  local unitLevel
+  if usingQuestie then
+    unitLevel = questieData.lvl
+  else
+    unitLevel = unitData["lvl"]
+    -- Check if Questie has better level info
+    if pfQDB and pfQDB.initialized and pfQDB.questieDataAvailable then
+      local qData = pfQDB:GetQuestieNPCData(id)
+      if qData and qData.lvl then
+        unitLevel = qData.lvl
+      end
+    end
+  end
+
+  -- Get unit name (fall back to Questie for WotLK units)
+  local unitName = pfDB.units.loc and pfDB.units.loc[id]
+  if not unitName and pfQDB and pfQDB.GetQuestieNPCName then
+    unitName = pfQDB:GetQuestieNPCName(id)
+  end
+
+  local addedCount = 0
   for _, data in pairs(coords) do
     local x, y, zone, respawn = unpack(data)
 
     if zone > 0 then
       -- add all gathered data
       meta = meta or {}
-      meta["spawn"] = pfDB.units.loc[id]
+      meta["spawn"] = unitName
       meta["spawnid"] = id
 
       meta["title"] = meta["quest"] or meta["item"] or meta["spawn"]
       meta["zone"]  = zone
       meta["x"]     = x
       meta["y"]     = y
+      addedCount = addedCount + 1
 
       meta["level"] = unitLevel or UNKNOWN
       meta["spawntype"] = pfQuest_Loc["Unit"]
@@ -739,6 +843,13 @@ function pfDatabase:SearchMobID(id, meta, maps, prio)
       maps[zone] = maps[zone] and maps[zone] + prio or prio
       pfMap:AddNode(meta)
     end
+  end
+
+  local src = usingQuestie and "questie" or "pfdb"
+  if addedCount > 0 then
+    pfDatabase:TraceLog("unit", id, unitName, "added", addedCount .. " nodes (" .. src .. ")")
+  else
+    pfDatabase:TraceLog("unit", id, unitName, "no_coords", "All coords had zone=0 (" .. src .. ")")
   end
 
   return maps
@@ -770,6 +881,11 @@ function pfDatabase:SearchMetaRelation(query, meta, show)
 
   -- convert track name aliases
   local track = alias[query.name] or query.name
+
+  -- Set trace context to "tracking" so trace entries from SearchMobID/SearchObjectID
+  -- are tagged as tracking (rare mobs, herbs, etc.) rather than quest pipeline
+  local prevContext = pfDatabase.trace.context
+  pfDatabase.trace.context = "tracking"
 
   if pfDB["meta"] and pfDB["meta"][track] then
     -- check which faction should be searched
@@ -808,6 +924,9 @@ function pfDatabase:SearchMetaRelation(query, meta, show)
       end
     end
   end
+
+  -- Restore previous trace context
+  pfDatabase.trace.context = prevContext
 
   return maps
 end
@@ -865,9 +984,7 @@ function pfDatabase:SearchMob(mob, meta, partial)
   local maps = {}
 
   for id in pairs(pfDatabase:GetIDByName(mob, "units", partial)) do
-    if units[id] and units[id]["coords"] then
-      maps = pfDatabase:SearchMobID(id, meta, maps)
-    end
+    maps = pfDatabase:SearchMobID(id, meta, maps)
   end
 
   return maps
@@ -939,10 +1056,30 @@ end
 -- Scans for all objects with a specified ID
 -- Adds map nodes for each and returns its map table
 function pfDatabase:SearchObjectID(id, meta, maps, prio)
-  if not objects[id] or not objects[id]["coords"] then return maps end
+  -- Check pfQuest DB first, fall back to Questie for WotLK/missing objects
+  local objectData = objects[id]
+  local questieData = nil
+  local usingQuestie = false
+
+  if not objectData or not objectData["coords"] then
+    -- pfQuest doesn't have this object - try Questie
+    if pfQDB and pfQDB.initialized and pfQDB.questieDataAvailable then
+      questieData = pfQDB:GetQuestieObjectData(id)
+      if questieData and questieData.coords then
+        usingQuestie = true
+      else
+        pfDatabase:TraceLog("object", id, nil, "no_data", "Not in pfDB or Questie")
+        return maps  -- Neither database has this object
+      end
+    else
+      pfDatabase:TraceLog("object", id, nil, "no_data", "Not in pfDB, Questie unavailable")
+      return maps  -- No Questie available and pfQuest doesn't have it
+    end
+  end
 
   -- Check holiday filtering - skip if entity is bound to a non-active holiday
   if pfQDB and pfQDB.ShouldShowEntity and not pfQDB:ShouldShowEntity("objects", id) then
+    pfDatabase:TraceLog("object", id, nil, "holiday", "Filtered by holiday binding")
     return maps or {}
   end
 
@@ -950,19 +1087,32 @@ function pfDatabase:SearchObjectID(id, meta, maps, prio)
   local maps = maps or {}
   local prio = prio or 1
 
-  -- Get coordinates, optionally filtered by database preference
-  local coords = objects[id]["coords"]
-  if pfQDB and pfQDB.initialized and pfQDB.questieDataAvailable then
-    coords = pfQDB:FilterCoordsByPreference(coords, id, "object")
+  -- Get coordinates based on data source
+  local coords
+  if usingQuestie then
+    coords = questieData.coords
+  else
+    coords = objectData["coords"]
+    -- Optionally filter by database preference (may swap to Questie for some zones)
+    if pfQDB and pfQDB.initialized and pfQDB.questieDataAvailable then
+      coords = pfQDB:FilterCoordsByPreference(coords, id, "object")
+    end
   end
 
+  -- Get object name (fall back to Questie for WotLK objects)
+  local objectName = pfDB.objects.loc and pfDB.objects.loc[id]
+  if not objectName and pfQDB and pfQDB.GetQuestieObjectName then
+    objectName = pfQDB:GetQuestieObjectName(id)
+  end
+
+  local addedCount = 0
   for _, data in pairs(coords) do
     local x, y, zone, respawn = unpack(data)
 
     if zone > 0 then
       -- add all gathered data
       meta = meta or {}
-      meta["spawn"] = pfDB.objects.loc[id]
+      meta["spawn"] = objectName
       meta["spawnid"] = id
 
       meta["title"] = meta["quest"] or meta["item"] or meta["spawn"]
@@ -976,7 +1126,15 @@ function pfDatabase:SearchObjectID(id, meta, maps, prio)
 
       maps[zone] = maps[zone] and maps[zone] + prio or prio
       pfMap:AddNode(meta)
+      addedCount = addedCount + 1
     end
+  end
+
+  local src = usingQuestie and "questie" or "pfdb"
+  if addedCount > 0 then
+    pfDatabase:TraceLog("object", id, objectName, "added", addedCount .. " nodes (" .. src .. ")")
+  else
+    pfDatabase:TraceLog("object", id, objectName, "no_coords", "All coords had zone=0 (" .. src .. ")")
   end
 
   return maps
@@ -989,9 +1147,7 @@ function pfDatabase:SearchObject(obj, meta, partial)
   local maps = {}
 
   for id in pairs(pfDatabase:GetIDByName(obj, "objects", partial)) do
-    if objects[id] and objects[id]["coords"] then
-      maps = pfDatabase:SearchObjectID(id, meta, maps)
-    end
+    maps = pfDatabase:SearchObjectID(id, meta, maps)
   end
 
   return maps
@@ -1124,21 +1280,40 @@ end
 -- Adds map nodes for each objective and involved units
 -- Returns its map table
 function pfDatabase:SearchQuestID(id, meta, maps)
-  if not quests[id] then return end
+  -- Set trace context to "quest" for quest pipeline entries
+  local prevContext = pfDatabase.trace.context
+  pfDatabase.trace.context = "quest"
+
+  local hasQuestData = quests[id] ~= nil
+
+  -- For unknown quests, we can still process quest log objectives if we have a qlogid
+  if not hasQuestData and type(id) ~= "number" and not (meta and meta["qlogid"]) then
+    pfDatabase:TraceLog("quest", id, tostring(id), "no_data", "Not in pfDB, not numeric, no qlogid")
+    pfDatabase.trace.context = prevContext
+    return
+  end
+
   local maps = maps or {}
   local meta = meta or {}
 
   meta["questid"] = id
   meta["quest"] = pfDB.quests.loc[id] and pfDB.quests.loc[id].T
-  meta["qlvl"] = quests[id]["lvl"]
-  meta["qmin"] = quests[id]["min"]
+
+  -- For WotLK quests not in pfDB, get title from quest log
+  if not meta["quest"] and meta["qlogid"] then
+    local title = compat.GetQuestLogTitle(meta["qlogid"])
+    meta["quest"] = title
+  end
+
+  meta["qlvl"] = hasQuestData and quests[id]["lvl"] or nil
+  meta["qmin"] = hasQuestData and quests[id]["min"] or nil
 
   -- clear previous unified quest nodes
   if meta.quest then
     pfMap.unifiedcache[meta.quest] = {}
   end
 
-  if pfQuest_config["currentquestgivers"] == "1" then
+  if hasQuestData and pfQuest_config["currentquestgivers"] == "1" then
     -- search quest-starter
     if quests[id]["start"] and not meta["qlogid"] then
       -- units
@@ -1222,7 +1397,10 @@ function pfDatabase:SearchQuestID(id, meta, maps)
   if meta["qlogid"] then
     local objectives = GetNumQuestLeaderBoards(meta["qlogid"])
     local _, _, _, _, _, complete = compat.GetQuestLogTitle(meta["qlogid"])
-    if complete then return maps end
+    if complete then
+      pfDatabase:TraceLog("quest", id, meta["quest"], "complete", "Quest already complete")
+      return maps
+    end
 
     if objectives then
       for i=1, objectives, 1 do
@@ -1231,18 +1409,32 @@ function pfDatabase:SearchQuestID(id, meta, maps)
         -- spawn data
         if type == "monster" then
           local i, j, monsterName, objNum, objNeeded = strfind(text, pfUI.api.SanitizePattern(QUEST_MONSTERS_KILLED))
-          for id in pairs(pfDatabase:GetIDByName(monsterName, "units")) do
-            parse_obj["U"][id] = ( objNum + 0 >= objNeeded + 0 or done ) and "DONE" or "PROG"
-          end
-
-          for id in pairs(pfDatabase:GetIDByName(monsterName, "objects")) do
-            parse_obj["O"][id] = ( objNum + 0 >= objNeeded + 0 or done ) and "DONE" or "PROG"
+          if not monsterName then
+            pfDatabase:TraceLog("quest", id, meta["quest"], "parse_fail", "Could not parse monster name from: " .. (text or "nil"))
+          else
+            local foundUnits = pfDatabase:GetIDByName(monsterName, "units")
+            local foundObjects = pfDatabase:GetIDByName(monsterName, "objects")
+            local uCount, oCount = 0, 0
+            for uid in pairs(foundUnits) do
+              parse_obj["U"][uid] = ( objNum + 0 >= objNeeded + 0 or done ) and "DONE" or "PROG"
+              uCount = uCount + 1
+            end
+            for oid in pairs(foundObjects) do
+              parse_obj["O"][oid] = ( objNum + 0 >= objNeeded + 0 or done ) and "DONE" or "PROG"
+              oCount = oCount + 1
+            end
+            if uCount == 0 and oCount == 0 then
+              pfDatabase:TraceLog("quest", id, meta["quest"], "no_name_match", "No ID found for monster: '" .. monsterName .. "'")
+            end
           end
         end
 
         -- item data
         if type == "item" then
           local i, j, itemName, objNum, objNeeded = strfind(text, pfUI.api.SanitizePattern(QUEST_OBJECTS_FOUND))
+          if not itemName then
+            pfDatabase:TraceLog("quest", id, meta["quest"], "parse_fail", "Could not parse item name from: " .. (text or "nil"))
+          end
           for id in pairs(pfDatabase:GetIDByName(itemName, "items")) do
             parse_obj["I"][id] = ( objNum + 0 >= objNeeded + 0 or done ) and "DONE" or "PROG"
           end
@@ -1252,7 +1444,7 @@ function pfDatabase:SearchQuestID(id, meta, maps)
   end
 
   -- search quest-objectives
-  if quests[id]["obj"] then
+  if hasQuestData and quests[id]["obj"] then
     local skip_objects
     local skip_creatures
 
@@ -1366,6 +1558,54 @@ function pfDatabase:SearchQuestID(id, meta, maps)
         maps = pfDatabase:SearchZoneID(zone, meta, maps)
       end
     end
+
+  elseif not hasQuestData and meta["qlogid"] then
+    -- WotLK quests without pfDB data: use quest log objectives to find locations.
+    -- parse_obj was built above from quest log API (GetQuestLogLeaderBoard),
+    -- and GetIDByName now searches Questie data, so we can locate WotLK mobs/objects.
+
+    local unitCount, objectCount = 0, 0
+    local unitDone, objectDone = 0, 0
+
+    pfDatabase:TraceLog("quest", id, meta["quest"], "wotlk_fallback", "Using quest log API + Questie data")
+
+    -- Search for unit objectives from quest log
+    for unitId, state in pairs(parse_obj["U"]) do
+      if state ~= "DONE" then
+        meta = meta or {}
+        meta["texture"] = nil
+        meta["QTYPE"] = "UNIT_OBJECTIVE"
+        maps = pfDatabase:SearchMobID(unitId, meta, maps)
+        unitCount = unitCount + 1
+      else
+        unitDone = unitDone + 1
+      end
+    end
+
+    -- Search for object objectives from quest log
+    for objectId, state in pairs(parse_obj["O"]) do
+      if state ~= "DONE" then
+        meta = meta or {}
+        meta["texture"] = nil
+        meta["layer"] = 2
+        meta["QTYPE"] = "OBJECT_OBJECTIVE"
+        maps = pfDatabase:SearchObjectID(objectId, meta, maps)
+        objectCount = objectCount + 1
+      else
+        objectDone = objectDone + 1
+      end
+    end
+
+    pfDatabase:TraceLog("quest", id, meta["quest"], "wotlk_result",
+      unitCount .. " units pending, " .. unitDone .. " done, " ..
+      objectCount .. " objects pending, " .. objectDone .. " done")
+
+    -- Debug: report WotLK quest fallback results
+    if pfQuest_config and pfQuest_config.debug then
+      local questName = meta["quest"] or tostring(id)
+      DEFAULT_CHAT_FRAME:AddMessage("|cff33ffccpfQuest|r: [WotLK] Quest '" .. questName ..
+        "' - found " .. unitCount .. " units, " .. objectCount .. " objects via Questie fallback")
+    end
   end
 
   -- prepare unified quest location markers
@@ -1399,6 +1639,7 @@ function pfDatabase:SearchQuestID(id, meta, maps)
     end
   end
 
+  pfDatabase.trace.context = prevContext
   return maps
 end
 
